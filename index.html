@@ -206,6 +206,43 @@
     cursor:pointer;line-height:1;
   }
   .qb-score-adj:hover{background:#2c3348;}
+
+  /* exploding result banner on the display */
+  .qb-banner-overlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    pointer-events:none;z-index:50;
+  }
+  .qb-banner{
+    font-family:'Archivo Black',sans-serif;
+    font-size:52px;text-align:center;padding:34px 54px;border-radius:24px;
+    max-width:80vw;
+    box-shadow:0 20px 80px rgba(0,0,0,0.6);
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 2.8s both;
+  }
+  .qb-banner.correct{background:var(--gold);color:#1b1f2e;}
+  .qb-banner.wrong{background:var(--buzz);color:#fff;}
+  @keyframes qb-explode{
+    0%{transform:scale(0.2) rotate(-6deg);opacity:0;}
+    60%{transform:scale(1.12) rotate(2deg);opacity:1;}
+    100%{transform:scale(1) rotate(0deg);}
+  }
+  @keyframes qb-banner-out{to{transform:scale(1.15);opacity:0;}}
+  .qb-banner-particle{
+    position:absolute;left:50%;top:50%;font-size:36px;
+    animation:qb-particle 1.5s ease-out forwards;
+  }
+  @keyframes qb-particle{
+    from{transform:translate(-50%,-50%) scale(1);opacity:1;}
+    to{transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.6);opacity:0;}
+  }
+
+  /* rules card on the lobby screen */
+  .qb-rules{
+    background:var(--panel);border-radius:20px;padding:24px 32px;margin:0 auto 30px;
+    max-width:780px;text-align:left;
+  }
+  .qb-rules h3{margin:0 0 12px;color:var(--gold);font-family:'Archivo Black',sans-serif;letter-spacing:1px;font-size:20px;text-transform:uppercase;}
+  .qb-rules ol{margin:0;padding-left:24px;font-size:19px;line-height:1.75;}
   .qb-back-link{align-self:flex-start;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;margin-bottom:16px;padding:0;}
   .qb-back-link:hover{color:var(--text);}
   .qb-small{font-size:13px;color:var(--text-dim);}
@@ -643,6 +680,15 @@
       view = 'join';
       return renderJoin();
     }
+    if(me){
+      // the host may have edited this player's name or avatar; the shared record
+      // always wins, and the stored identity is refreshed so it sticks on this phone
+      if(me.name !== myPlayerName) myPlayerName = me.name;
+      const stored = loadStoredIdentity();
+      if(stored && (stored.name !== me.name || stored.avatar !== me.avatar)){
+        saveStoredIdentity(me.id, me.name, me.avatar);
+      }
+    }
     const myScore = me ? me.score : 0;
     const myAvatar = me ? me.avatar : '';
 
@@ -682,10 +728,10 @@
         statusSub = 'Waiting for the host to mark it right or wrong';
       } else if(state.buzzedId){
         statusLine = `${state.buzzedAvatar || ''} ${esc(state.buzzedName || 'Someone')} buzzed in first`;
-        statusSub = 'Locked out for this round';
+        statusSub = 'Buzzers are locked while they answer';
       } else if(iAmLockedOut){
-        statusLine = "You've had your guess this round";
-        statusSub = 'Wait for the next round';
+        statusLine = 'Wrong this time &mdash; your buzzer is locked';
+        statusSub = "You get one guess per song, so you're out for the rest of this one. You'll be back in as soon as the next round starts.";
       } else {
         statusLine = 'Buzz in when you know it!';
         statusSub = 'Only one guess per layer';
@@ -736,7 +782,25 @@
 
   // ---------- DISPLAY ----------
   let displayPoll = null;
-  let prevDisplaySound = null;
+  let prevDisplaySnap = null;
+
+  // big self-destructing result banner, appended to <body> so the 900ms
+  // display re-render can't wipe it mid-animation
+  function showBanner(kind, html){
+    document.querySelectorAll('.qb-banner-overlay').forEach(el => el.remove());
+    const overlay = document.createElement('div');
+    overlay.className = 'qb-banner-overlay';
+    const emojis = kind === 'correct' ? ['🎉','⭐','✨','🎊'] : ['💥','❌','💢','😬'];
+    let particles = '';
+    for(let i = 0; i < 16; i++){
+      const ang = (Math.PI * 2 * i) / 16;
+      const dist = 240 + Math.random() * 180;
+      particles += `<span class="qb-banner-particle" style="--dx:${Math.round(Math.cos(ang) * dist)}px;--dy:${Math.round(Math.sin(ang) * dist)}px;">${emojis[i % emojis.length]}</span>`;
+    }
+    overlay.innerHTML = `${particles}<div class="qb-banner ${kind}">${html}</div>`;
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.remove(), 3400);
+  }
   function joinedPlayersHTML(players){
     if(players.length === 0) return `<p class="qb-small">Waiting for the first player to join&hellip;</p>`;
     return `<div class="qb-lobby-grid">` + players.map(p => `
@@ -788,19 +852,28 @@
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const isLobby = !state.roundId;
 
-    // the display is the tab being cast, so it's the room's speaker:
-    // play a sound whenever the polled state shows something happened
-    if(prevDisplaySound){
-      const prev = prevDisplaySound;
+    // the display is the tab being cast, so it's the room's speaker and hype man:
+    // whenever the polled state shows something happened, play a sound and, for
+    // right/wrong verdicts, fire the big exploding banner
+    if(prevDisplaySnap){
+      const prev = prevDisplaySnap;
       if(state.buzzedId && state.buzzedId !== prev.buzzedId) playSound('buzz');
-      if(state.status === 'reveal' && prev.status !== 'reveal') playSound(state.winnerId ? 'correct' : 'reveal');
+      if(state.status === 'reveal' && prev.status !== 'reveal'){
+        playSound(state.winnerId ? 'correct' : 'reveal');
+        if(state.winnerId) showBanner('correct', `${state.winnerAvatar || ''} ${esc(state.winnerName || 'Someone')} got it correct!`);
+      }
       const lockedCount = (state.lockedOut || []).length;
-      if(state.status === 'live' && prev.status === 'live' && lockedCount > prev.lockedCount) playSound('wrong');
+      if(state.status === 'live' && prev.status === 'live' && lockedCount > prev.lockedCount){
+        playSound('wrong');
+        showBanner('wrong', `${prev.buzzedAvatar || ''} ${esc(prev.buzzedName || 'Someone')} got it wrong!<div style="font-size:26px;margin-top:10px;">Buzzers open again</div>`);
+      }
       if(state.status === 'live' && prev.status === 'live' && (state.stageIndex||0) > prev.stageIndex && lockedCount <= prev.lockedCount) playSound('layer');
       if(isLobby && players.length > prev.playerCount) playSound('join');
     }
-    prevDisplaySound = {
+    prevDisplaySnap = {
       buzzedId: state.buzzedId || null,
+      buzzedName: state.buzzedName || null,
+      buzzedAvatar: state.buzzedAvatar || null,
       status: state.status,
       lockedCount: (state.lockedOut || []).length,
       stageIndex: state.stageIndex || 0,
@@ -820,6 +893,16 @@
             <h3>${players.length} player${players.length===1?'':'s'} joined</h3>
             ${joinedPlayersHTML(players)}
           </div>
+        </div>
+        <div class="qb-rules">
+          <h3>How it works</h3>
+          <ol>
+            <li>A song plays one instrument layer at a time &mdash; the fewer layers you need, the more points you get.</li>
+            <li>Know it? Hit <strong>BUZZ</strong>. First buzz locks everyone else out while you answer out loud.</li>
+            <li>Right answer: the points are yours and the round ends.</li>
+            <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
+            <li>You only get <strong>one guess per song</strong>, so buzz when you're sure!</li>
+          </ol>
         </div>
       `;
     } else if(state.status === 'reveal'){
@@ -916,8 +999,40 @@
     renderAdmin();
   }
 
-  function newStageRow(points){
-    return { label:'', points: points };
+  // host editing of a player's name/avatar; hostEdited marks the record as
+  // host-owned so the player's phone adopts it and keeps it
+  let editingPlayerId = null;
+  let editName = '';
+  let editAvatar = '';
+  function openPlayerEditor(p){
+    editingPlayerId = p.id;
+    editName = p.name;
+    editAvatar = p.avatar;
+    renderAdmin();
+  }
+  function closePlayerEditor(){
+    editingPlayerId = null;
+    renderAdmin();
+  }
+  async function savePlayerEdit(){
+    const nameEl = document.getElementById('qb-edit-name');
+    const name = (nameEl ? nameEl.value : editName).trim();
+    if(!name){ alert('The name cannot be empty.'); return; }
+    const players = await getPlayers();
+    const p = players.find(x => x.id === editingPlayerId);
+    if(p){
+      p.name = name;
+      p.avatar = editAvatar;
+      p.hostEdited = true;
+    }
+    await savePlayers(players);
+    editingPlayerId = null;
+    renderAdmin();
+  }
+
+  // sensible default labels so the host doesn't retype layers every round
+  function newStageRow(n, points){
+    return { label: n === 1 ? '1 Track Layer' : n + ' Track Layers', points: points };
   }
 
   function openAddForm(){
@@ -925,7 +1040,7 @@
     formLabel = '';
     formSong = '';
     formArtist = '';
-    formStages = [ newStageRow(5), newStageRow(4), newStageRow(3), newStageRow(2), newStageRow(1) ];
+    formStages = [1,2,3,4,5].map(n => newStageRow(n, 6 - n));
     renderAdmin();
   }
 
@@ -945,7 +1060,7 @@
 
   function addStageRow(){
     const lastPoints = formStages.length ? formStages[formStages.length-1].points : 6;
-    formStages.push(newStageRow(Math.max(1, lastPoints - 1)));
+    formStages.push(newStageRow(formStages.length + 1, Math.max(1, lastPoints - 1)));
     renderAdmin();
   }
 
@@ -1286,10 +1401,23 @@
         <div class="qb-admin-section">
           <h3>Players (${players.length})</h3>
           ${players.length === 0 ? '<p class="qb-small">Nobody has joined yet. Send them to the sign up page.</p>' : ''}
-          ${sortedPlayers(players).map(p => `
+          ${sortedPlayers(players).map(p => p.id === editingPlayerId ? `
+            <div class="qb-player-admin-row" style="flex-direction:column;align-items:stretch;gap:10px;">
+              <label class="qb-label" style="margin-bottom:0;">Display name</label>
+              <input class="qb-input" id="qb-edit-name" maxlength="20" value="${esc(editName)}" style="margin-bottom:0;" />
+              <div class="qb-avatar-grid">
+                ${AVATARS.map(a => `<div class="qb-avatar ${a===editAvatar?'selected':''}" data-action="edit-pick-avatar" data-avatar="${a}">${a}</div>`).join('')}
+              </div>
+              <div class="qb-row-2">
+                <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="cancel-edit-player">Cancel</button>
+                <button class="qb-btn qb-btn-gold qb-btn-small" data-action="save-edit-player">Save</button>
+              </div>
+            </div>
+          ` : `
             <div class="qb-player-admin-row">
               <span>${p.avatar} ${esc(p.name)}</span>
               <span style="display:flex;align-items:center;gap:8px;">
+                <button class="qb-score-adj" data-action="edit-player" data-id="${p.id}" title="Edit name and picture">&#9998;</button>
                 <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
                 <span class="pts" style="color:var(--gold);min-width:48px;text-align:center;">${p.score} pts</span>
                 <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="1" title="Add a point">+</button>
@@ -1308,7 +1436,7 @@
     bindActions();
 
     if(!adminPoll){
-      adminPoll = setInterval(() => { if(view === 'admin' && !formOpen) renderAdmin(); }, 1200);
+      adminPoll = setInterval(() => { if(view === 'admin' && !formOpen && !editingPlayerId) renderAdmin(); }, 1200);
     }
   }
 
@@ -1355,6 +1483,19 @@
           withUndo('resetting the game', resetGame);
         } else if(action === 'adjust-score'){
           adjustScore(el.getAttribute('data-id'), parseInt(el.getAttribute('data-delta'), 10));
+        } else if(action === 'edit-player'){
+          const players = await getPlayers();
+          const p = players.find(x => x.id === el.getAttribute('data-id'));
+          if(p) openPlayerEditor(p);
+        } else if(action === 'edit-pick-avatar'){
+          const nameEl = document.getElementById('qb-edit-name');
+          if(nameEl) editName = nameEl.value;
+          editAvatar = el.getAttribute('data-avatar');
+          renderAdmin();
+        } else if(action === 'save-edit-player'){
+          savePlayerEdit();
+        } else if(action === 'cancel-edit-player'){
+          closePlayerEditor();
         } else if(action === 'undo'){
           undoLast();
         } else if(action === 'toggle-sound'){
