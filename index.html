@@ -1,4 +1,5 @@
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -14,8 +15,10 @@
     --text-dim:#8a8fa3;
     --good:#4cc38a;
   }
-  *{box-sizing:border-box;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html{-webkit-text-size-adjust:100%;}
   body{margin:0;padding:0;background:transparent;}
+  button,.qb-avatar{touch-action:manipulation;user-select:none;-webkit-user-select:none;}
   #qb-root{
     font-family:'Inter',system-ui,sans-serif;
     background:var(--bg);
@@ -197,6 +200,12 @@
   }
   .qb-remove-x{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;}
   .qb-remove-x:hover{color:var(--buzz);}
+  .qb-score-adj{
+    width:30px;height:30px;border-radius:8px;border:1px solid #3a4160;
+    background:transparent;color:var(--text);font-size:16px;font-weight:700;
+    cursor:pointer;line-height:1;
+  }
+  .qb-score-adj:hover{background:#2c3348;}
   .qb-back-link{align-self:flex-start;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;margin-bottom:16px;padding:0;}
   .qb-back-link:hover{color:var(--text);}
   .qb-small{font-size:13px;color:var(--text-dim);}
@@ -347,6 +356,71 @@
 
   function makeId(prefix){
     return (prefix||'p') + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
+  }
+
+  // ---------- sound effects: synthesized with Web Audio, so no audio files needed ----------
+  let audioCtx = null;
+  let soundOn = true;
+  try{ soundOn = localStorage.getItem('qb-sound') !== 'off'; }catch(e){}
+
+  function ensureAudio(){
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return null;
+    if(!audioCtx) audioCtx = new AC();
+    if(audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+    return audioCtx;
+  }
+  // browsers block sound until the page has been interacted with once, so any
+  // first tap anywhere (joining, buzzing, an admin click) unlocks the audio
+  document.addEventListener('pointerdown', ensureAudio, true);
+
+  function tone(freq, at, dur, type, vol, endFreq){
+    const t0 = audioCtx.currentTime + at;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t0);
+    if(endFreq) osc.frequency.exponentialRampToValueAtTime(endFreq, t0 + dur);
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(vol, t0 + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.05);
+  }
+  const SOUNDS = {
+    // the classic game-show lockout buzzer: harsh, low, unmistakable
+    buzz(){ tone(240, 0, 0.45, 'sawtooth', 0.4, 190); tone(120, 0, 0.45, 'square', 0.3, 95); },
+    correct(){ [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.09, 0.25, 'triangle', 0.3)); },
+    wrong(){ tone(233, 0, 0.22, 'square', 0.25, 200); tone(196, 0.2, 0.45, 'square', 0.25, 147); },
+    reveal(){ tone(392, 0, 0.2, 'triangle', 0.25); tone(330, 0.18, 0.35, 'triangle', 0.25); },
+    join(){ tone(880, 0, 0.09, 'sine', 0.2); tone(1175, 0.08, 0.14, 'sine', 0.2); },
+    layer(){ tone(587, 0, 0.1, 'triangle', 0.22); tone(659, 0.1, 0.16, 'triangle', 0.22); }
+  };
+  function playSound(name){
+    if(!soundOn || !SOUNDS[name]) return;
+    const ctx = ensureAudio();
+    if(!ctx || ctx.state !== 'running') return;
+    try{ SOUNDS[name](); }catch(e){}
+  }
+  function toggleSound(){
+    const wasBlocked = soundOn && (!audioCtx || audioCtx.state !== 'running');
+    if(!soundOn || wasBlocked){
+      soundOn = true;
+      ensureAudio();
+      // confirmation blip, delayed a tick so the context has time to resume
+      setTimeout(() => playSound('join'), 60);
+    } else {
+      soundOn = false;
+    }
+    try{ localStorage.setItem('qb-sound', soundOn ? 'on' : 'off'); }catch(e){}
+    render();
+  }
+  function soundButtonLabel(){
+    if(!soundOn) return '&#128263; Sound off';
+    if(!audioCtx || audioCtx.state !== 'running') return '&#128263; Tap to turn on sound';
+    return '&#128266; Sound on';
   }
 
   // ---------- device identity: lets a refreshed phone rejoin as the same player ----------
@@ -547,6 +621,7 @@
 
   // ---------- PLAYER ----------
   let playerPoll = null;
+  let prevPlayerSound = null;
   async function renderPlayer(){
     if(!myPlayerId){
       const resumed = await resumeStoredPlayer();
@@ -579,6 +654,14 @@
     const iAmLockedOut = (state.lockedOut || []).includes(myPlayerId);
     const iBuzzedIn = state.buzzedId === myPlayerId;
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
+
+    // phones only make sound for things that happened to *this* player;
+    // the room-wide sounds come from the display
+    if(prevPlayerSound){
+      if(state.status === 'reveal' && prevPlayerSound.status !== 'reveal' && state.winnerId === myPlayerId) playSound('correct');
+      if(iAmLockedOut && !prevPlayerSound.lockedOut) playSound('wrong');
+    }
+    prevPlayerSound = { status: state.status, lockedOut: iAmLockedOut };
 
     if(state.status === 'idle'){
       statusLine = 'Waiting for the host to load the next round';
@@ -646,12 +729,14 @@
     state.buzzedId = myPlayerId;
     state.buzzedName = me ? me.name : myPlayerName;
     state.buzzedAvatar = me ? me.avatar : '';
+    playSound('buzz');
     await saveGameState(state);
     renderPlayer();
   }
 
   // ---------- DISPLAY ----------
   let displayPoll = null;
+  let prevDisplaySound = null;
   function joinedPlayersHTML(players){
     if(players.length === 0) return `<p class="qb-small">Waiting for the first player to join&hellip;</p>`;
     return `<div class="qb-lobby-grid">` + players.map(p => `
@@ -702,6 +787,25 @@
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const isLobby = !state.roundId;
+
+    // the display is the tab being cast, so it's the room's speaker:
+    // play a sound whenever the polled state shows something happened
+    if(prevDisplaySound){
+      const prev = prevDisplaySound;
+      if(state.buzzedId && state.buzzedId !== prev.buzzedId) playSound('buzz');
+      if(state.status === 'reveal' && prev.status !== 'reveal') playSound(state.winnerId ? 'correct' : 'reveal');
+      const lockedCount = (state.lockedOut || []).length;
+      if(state.status === 'live' && prev.status === 'live' && lockedCount > prev.lockedCount) playSound('wrong');
+      if(state.status === 'live' && prev.status === 'live' && (state.stageIndex||0) > prev.stageIndex && lockedCount <= prev.lockedCount) playSound('layer');
+      if(isLobby && players.length > prev.playerCount) playSound('join');
+    }
+    prevDisplaySound = {
+      buzzedId: state.buzzedId || null,
+      status: state.status,
+      lockedCount: (state.lockedOut || []).length,
+      stageIndex: state.stageIndex || 0,
+      playerCount: players.length
+    };
     let stagePill = '';
     let centre;
 
@@ -748,7 +852,10 @@
 
     root.innerHTML = `
       <div class="qb-display">
-        ${backLink('home','&larr; Back')}
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+          ${backLink('home','&larr; Back')}
+          <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
+        </div>
         <div class="round-tag">${isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round')}</div>
         <h1 class="qb-title">The Music Quiz</h1>
         ${stagePill}
@@ -772,6 +879,42 @@
 
   // ---------- ADMIN ----------
   let adminPoll = null;
+
+  // host-side undo: snapshot the shared scores + game state just before each
+  // host action, so a mis-click ("marked the wrong answer correct") can be
+  // rolled back. Lives only in the host's tab; players can't undo anything.
+  let undoStack = [];
+  async function withUndo(label, fn){
+    const [stateSnap, playersSnap] = await Promise.all([kvGet('qb-state'), kvGet('qb-players')]);
+    const proceeded = await fn();
+    if(proceeded === false) return; // action was a no-op or the host cancelled it
+    undoStack.push({ label, state: stateSnap, players: playersSnap });
+    if(undoStack.length > 12) undoStack.shift();
+    renderAdmin();
+  }
+  async function undoLast(){
+    const snap = undoStack.pop();
+    if(!snap) return;
+    // keep anyone who joined after the snapshot, so an undo never kicks a player
+    let restored = [];
+    try{ restored = snap.players ? JSON.parse(snap.players) : []; }catch(e){}
+    const current = await getPlayers();
+    current.forEach(p => { if(!restored.some(r => r.id === p.id)) restored.push(p); });
+    await Promise.all([
+      kvSet('qb-state', snap.state || JSON.stringify(defaultState())),
+      kvSet('qb-players', JSON.stringify(restored))
+    ]);
+    renderAdmin();
+  }
+
+  async function adjustScore(id, delta){
+    const players = await getPlayers();
+    const p = players.find(x => x.id === id);
+    if(!p) return;
+    p.score = (p.score || 0) + delta;
+    await savePlayers(players);
+    renderAdmin();
+  }
 
   function newStageRow(points){
     return { label:'', points: points };
@@ -868,7 +1011,7 @@
   async function loadRoundToPlay(id){
     const rounds = await getRounds();
     const r = rounds.find(x => x.id === id);
-    if(!r) return;
+    if(!r) return false;
     const s = defaultState();
     s.status = 'live';
     s.roundId = r.id;
@@ -883,18 +1026,18 @@
 
   async function nextStage(){
     const s = await getGameState();
-    if(s.stageIndex < s.stages.length - 1){
-      s.stageIndex += 1;
-      s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
-      // lockedOut is left as is on purpose: one guess per round, not per layer
-      s.status = 'live';
-      await saveGameState(s);
-      renderAdmin();
-    }
+    if(s.stageIndex >= s.stages.length - 1) return false;
+    s.stageIndex += 1;
+    s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
+    // lockedOut is left as is on purpose: one guess per round, not per layer
+    s.status = 'live';
+    await saveGameState(s);
+    renderAdmin();
   }
 
   async function revealNoWinner(){
     const s = await getGameState();
+    if(s.status === 'reveal') return false;
     s.status = 'reveal';
     s.winnerId = null; s.winnerName = null; s.winnerAvatar = null; s.pointsAwarded = null;
     s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
@@ -904,7 +1047,7 @@
 
   async function markCorrect(){
     const s = await getGameState();
-    if(!s.buzzedId) return;
+    if(!s.buzzedId) return false;
     const stage = s.stages[s.stageIndex];
     const points = stage ? stage.points : 0;
     const players = await getPlayers();
@@ -924,7 +1067,7 @@
 
   async function markWrong(){
     const s = await getGameState();
-    if(!s.buzzedId) return;
+    if(!s.buzzedId) return false;
     s.lockedOut = s.lockedOut || [];
     if(!s.lockedOut.includes(s.buzzedId)) s.lockedOut.push(s.buzzedId);
     s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
@@ -940,7 +1083,7 @@
   }
 
   async function resetGame(){
-    if(!confirm('Reset all scores and end the current round? Your round library stays intact.')) return;
+    if(!confirm('Reset all scores and end the current round? Your round library stays intact.')) return false;
     const players = await getPlayers();
     players.forEach(p => p.score = 0);
     await savePlayers(players);
@@ -1126,6 +1269,12 @@
 
         ${nowPlayingSection}
 
+        ${undoStack.length ? `
+        <div class="qb-admin-section">
+          <h3>Fix a mistake</h3>
+          <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="undo" title="Puts scores and the round back to how they were just before that action">&#8630; Undo ${esc(undoStack[undoStack.length-1].label)}</button>
+        </div>` : ''}
+
         <div class="qb-admin-section">
           <h3>Round library</h3>
           ${roundsListHTML}
@@ -1139,8 +1288,13 @@
           ${players.length === 0 ? '<p class="qb-small">Nobody has joined yet. Send them to the sign up page.</p>' : ''}
           ${sortedPlayers(players).map(p => `
             <div class="qb-player-admin-row">
-              <span>${p.avatar} ${esc(p.name)} &nbsp; <span class="pts" style="color:var(--gold);">${p.score} pts</span></span>
-              <button class="qb-remove-x" data-action="remove-player" data-id="${p.id}">&times;</button>
+              <span>${p.avatar} ${esc(p.name)}</span>
+              <span style="display:flex;align-items:center;gap:8px;">
+                <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
+                <span class="pts" style="color:var(--gold);min-width:48px;text-align:center;">${p.score} pts</span>
+                <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="1" title="Add a point">+</button>
+                <button class="qb-remove-x" data-action="remove-player" data-id="${p.id}" title="Remove this player">&times;</button>
+              </span>
             </div>
           `).join('')}
         </div>
@@ -1188,17 +1342,23 @@
         } else if(action === 'buzz'){
           buzzIn();
         } else if(action === 'mark-correct'){
-          markCorrect();
+          withUndo('marking that answer correct', markCorrect);
         } else if(action === 'mark-wrong'){
-          markWrong();
+          withUndo('marking that answer wrong', markWrong);
         } else if(action === 'next-stage'){
-          nextStage();
+          withUndo('adding the next layer', nextStage);
         } else if(action === 'reveal-no-winner'){
-          revealNoWinner();
+          withUndo('revealing the answer', revealNoWinner);
         } else if(action === 'remove-player'){
-          removePlayer(el.getAttribute('data-id'));
+          withUndo('removing a player', () => removePlayer(el.getAttribute('data-id')));
         } else if(action === 'reset-game'){
-          resetGame();
+          withUndo('resetting the game', resetGame);
+        } else if(action === 'adjust-score'){
+          adjustScore(el.getAttribute('data-id'), parseInt(el.getAttribute('data-delta'), 10));
+        } else if(action === 'undo'){
+          undoLast();
+        } else if(action === 'toggle-sound'){
+          toggleSound();
         } else if(action === 'add-round'){
           openAddForm();
         } else if(action === 'edit-round'){
@@ -1209,7 +1369,7 @@
         } else if(action === 'delete-round'){
           deleteRound(el.getAttribute('data-id'));
         } else if(action === 'load-round'){
-          loadRoundToPlay(el.getAttribute('data-id'));
+          withUndo('loading that round', () => loadRoundToPlay(el.getAttribute('data-id')));
         } else if(action === 'add-stage'){
           readFormFromDOM();
           addStageRow();
