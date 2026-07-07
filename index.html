@@ -87,6 +87,14 @@
     border:2px solid transparent;
   }
   .qb-avatar.selected{border-color:var(--gold);background:#333c58;}
+  .qb-buzzer-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:18px;}
+  .qb-buzzer-pick{
+    padding:12px 10px;border-radius:10px;border:2px solid transparent;
+    background:var(--panel-light);color:var(--text);font-size:14px;font-weight:600;
+    cursor:pointer;text-align:center;
+  }
+  .qb-buzzer-pick:hover{background:#2c3348;}
+  .qb-buzzer-pick.selected{border-color:var(--gold);background:#333c58;}
 
   /* Buzzer */
   .qb-buzzer-wrap{display:flex;flex-direction:column;align-items:center;gap:22px;padding:30px 0;}
@@ -295,6 +303,20 @@
   }
   .qb-rules h3{margin:0 0 12px;color:var(--gold);font-family:'Archivo Black',sans-serif;letter-spacing:1px;font-size:20px;text-transform:uppercase;}
   .qb-rules ol{margin:0;padding-left:24px;font-size:19px;line-height:1.75;}
+
+  /* wager round */
+  .qb-wager-toggle{display:flex;gap:10px;align-items:flex-start;background:var(--panel-light);border-radius:10px;padding:12px 14px;margin-bottom:12px;cursor:pointer;font-size:14px;}
+  .qb-wager-toggle input{margin-top:3px;transform:scale(1.3);}
+  .qb-wager-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:6px;}
+  .qb-wager-tag{background:var(--gold);color:#1b1f2e;font-size:11px;font-weight:800;padding:2px 7px;border-radius:6px;vertical-align:middle;}
+  .qb-wager-badge{background:var(--gold);color:#1b1f2e;font-family:'Archivo Black',sans-serif;padding:8px 20px;border-radius:20px;font-size:18px;}
+  .qb-wager-splash{text-align:center;margin-bottom:26px;}
+  .qb-wager-title{font-family:'Archivo Black',sans-serif;font-size:40px;color:var(--gold);}
+  .qb-pot{font-family:'Archivo Black',sans-serif;font-size:52px;margin:12px 0;}
+  .qb-pot span{color:var(--gold);}
+  .qb-wager-in{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;color:var(--text-dim);}
+  .qb-pot-line{color:var(--gold);font-size:22px;font-weight:700;margin-top:12px;}
+  .qb-pot-pill{display:inline-block;background:var(--gold);color:#1b1f2e;font-weight:800;padding:8px 20px;border-radius:20px;font-size:20px;margin-bottom:14px;}
   .qb-back-link{align-self:flex-start;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;margin-bottom:16px;padding:0;}
   .qb-back-link:hover{color:var(--text);}
   .qb-small{font-size:13px;color:var(--text-dim);}
@@ -355,6 +377,7 @@
   let myPlayerName = null;
   let joinDraftName = '';
   let joinDraftAvatar = null;
+  let joinDraftSound = null;   // index into BUZZ_SOUNDS; player picks it on the join screen
   let codeDraft = '';
 
   // admin round-builder form state (local, not shared, only the host edits this)
@@ -363,6 +386,9 @@
   let formSong = '';
   let formArtist = '';
   let formStages = [];       // [{label, points}]
+  let formWager = false;     // is this a wager round?
+  let formAnte = 2;          // points each player antes to play a wager round
+  let formHouseSeed = 0;     // points the house adds to the pot to start
 
   const AVATARS = ['🦊','🐸','🐧','🐢','🦁','🐨','🐯','🐵','🦄','🐙','🦖','🐝','🐮','🐼','🐔','🦉','🐳','🦅',
     '🦆','🦥','🦔','🐐','🦞','🦩','🦜','🐌','🦑','🦧','🐫','🦬','🥔','🥦','🧀','🌭','👽','🤖','🧙','🥸','🫠','🧌'];
@@ -380,6 +406,9 @@
       buzzEpoch:'', buzzersOpenedAt:0,
       showStandings:false, showPodium:false,
       lockedOut:[],
+      // wager round: players ante points into a pot before buzzers open; the
+      // winner takes the pot, an unclaimed pot rolls over to the next wager round
+      wagerActive:false, wagerPhase:'', anteEpoch:'', ante:0, houseSeed:0, pot:0, antes:{},
       winnerId:null, winnerName:null, winnerAvatar:null, pointsAwarded:null
     };
   }
@@ -493,6 +522,35 @@
         { method:'PUT', body:'{".sv":"timestamp"}' });
     }catch(e){}
   }
+
+  // ---------- wager antes ----------
+  // Like buzzing, each player writes only their own ante key, so simultaneous
+  // antes never clobber the pot. Scores aren't touched until the host closes
+  // betting (single writer), which avoids racing on the shared players array.
+  function anteUrl(epoch, playerId){
+    return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
+      + '/qb-ante-' + encodeURIComponent(epoch)
+      + (playerId ? '/' + encodeURIComponent(playerId) : '') + '.json';
+  }
+  async function fetchAntes(epoch){
+    if(!bucket || !epoch) return {};
+    try{
+      const res = await fetch(anteUrl(epoch), { cache:'no-store' });
+      if(!res.ok) return {};
+      return (await res.json()) || {};
+    }catch(e){ return {}; }
+  }
+  function sumAntes(antes){
+    return Object.values(antes || {}).reduce((t, a) => t + (a && a.amount ? a.amount : 0), 0);
+  }
+  // the unclaimed pot rolls to the next wager round; kept in its own key so
+  // loading a round (which resets game state) doesn't wipe it
+  async function getCarryPot(){
+    const t = await kvGet('qb-carrypot');
+    const n = t ? parseInt(t, 10) : 0;
+    return Number.isFinite(n) ? n : 0;
+  }
+  async function setCarryPot(n){ await kvSet('qb-carrypot', String(n || 0)); }
 
   // ---------- sound effects: synthesized with Web Audio, so no audio files needed ----------
   let audioCtx = null;
@@ -760,6 +818,10 @@
         <div class="qb-avatar-grid">
           ${AVATARS.map(a => `<div class="qb-avatar ${a===joinDraftAvatar?'selected':''}" data-action="pick-avatar" data-avatar="${a}">${a}</div>`).join('')}
         </div>
+        <label class="qb-label">Pick your buzzer sound &mdash; tap to hear it</label>
+        <div class="qb-buzzer-grid">
+          ${BUZZ_SOUNDS.map((b, i) => `<button class="qb-buzzer-pick ${i===joinDraftSound?'selected':''}" data-action="pick-buzzer" data-sound="${i}">${esc(b.label)}</button>`).join('')}
+        </div>
         <button class="qb-btn qb-btn-primary" data-action="submit-join">Join the quiz</button>
         ${claimHTML}
       </div>
@@ -777,9 +839,11 @@
     const name = (nameEl ? nameEl.value : joinDraftName).trim();
     if(!name){ alert('Enter a name first.'); return; }
     if(!joinDraftAvatar){ alert('Pick a picture first.'); return; }
+    // default to a random buzzer if they never tapped one, so nobody is silent
+    const sound = Number.isInteger(joinDraftSound) ? joinDraftSound : Math.floor(Math.random() * BUZZ_SOUNDS.length);
     const id = makeId('p');
     const players = await getPlayers();
-    players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: Math.floor(Math.random() * BUZZ_SOUNDS.length) });
+    players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound });
     await savePlayers(players);
     saveStoredIdentity(id, name, joinDraftAvatar);
     myPlayerId = id;
@@ -860,6 +924,15 @@
     const liveBuzz = state.status === 'live' ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
     const iBuzzedIn = !!liveBuzz && liveBuzz.id === myPlayerId;
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
+    const betting = state.wagerActive && state.wagerPhase === 'betting';
+    const inWagerRound = state.wagerActive && state.wagerPhase === 'playing';
+    let myAnte = null;
+    let livePot = state.pot || 0;
+    if(betting){
+      const antes = await fetchAntes(state.anteEpoch);
+      myAnte = antes[myPlayerId] || null;
+      livePot = (state.pot || 0) + sumAntes(antes);   // base (seed + carry) plus everyone's antes
+    }
 
     // phones only make sound for things that happened to *this* player;
     // the room-wide sounds come from the display
@@ -892,11 +965,43 @@
       } else if(iAmLockedOut){
         statusLine = 'Wrong this time &mdash; your buzzer is locked';
         statusSub = "You get one guess per song, so you're out for the rest of this one. You'll be back in as soon as the next round starts.";
+      } else if(inWagerRound && !(state.antes && state.antes[myPlayerId] !== undefined)){
+        statusLine = 'You sat this wager round out';
+        statusSub = 'You kept your points &mdash; back in next round.';
       } else {
-        statusLine = 'Buzz in when you know it!';
+        statusLine = inWagerRound ? `Buzz to win the ${state.pot}-point pot!` : 'Buzz in when you know it!';
         statusSub = 'Only one guess per layer';
         buzzerDisabled = false;
       }
+    }
+
+    // during the betting phase the buzzer is replaced by the ante controls
+    let centreHTML;
+    if(betting){
+      const canAfford = myScore > 0;
+      centreHTML = `
+        <div class="qb-buzzer-wrap">
+          <div class="qb-wager-badge">💰 WAGER ROUND</div>
+          <div class="qb-status-line">Pot so far: <span style="color:var(--gold);font-weight:800;">${livePot} pts</span></div>
+          ${myAnte ? `
+            <div class="qb-status-sub" style="font-size:16px;">You're in for ${myAnte.amount} pt${myAnte.amount===1?'':'s'}. Good luck!</div>
+            <button class="qb-btn qb-btn-ghost" data-action="cancel-ante">Actually, sit this one out</button>
+          ` : `
+            <div class="qb-status-sub" style="font-size:16px;">Ante is ${state.ante} pts to play${!canAfford ? ' (you have 0 &mdash; you can still go all-in for free)' : (myScore < state.ante ? ` (you have ${myScore}, so you'd go all-in)` : '')}.</div>
+            <button class="qb-btn qb-btn-gold" data-action="place-ante">I'm in &mdash; ante up</button>
+            <div class="qb-status-sub">No ante, no buzzer this round.</div>
+          `}
+        </div>
+      `;
+    } else {
+      centreHTML = `
+        <div class="qb-buzzer-wrap">
+          ${stagePill}
+          <button class="qb-buzzer" data-action="buzz" ${buzzerDisabled ? 'disabled' : ''}>BUZZ</button>
+          <div class="qb-status-line">${statusLine}</div>
+          <div class="qb-status-sub">${statusSub}</div>
+        </div>
+      `;
     }
 
     root.innerHTML = `
@@ -908,12 +1013,7 @@
             <span class="pts" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScore} pts</span>
           </span>
         </div>
-        <div class="qb-buzzer-wrap">
-          ${stagePill}
-          <button class="qb-buzzer" data-action="buzz" ${buzzerDisabled ? 'disabled' : ''}>BUZZ</button>
-          <div class="qb-status-line">${statusLine}</div>
-          <div class="qb-status-sub">${statusSub}</div>
-        </div>
+        ${centreHTML}
         <div class="qb-scoreboard">
           ${scoreboardHTML(players, false)}
         </div>
@@ -932,6 +1032,8 @@
     const state = await getGameState();
     if(state.status !== 'live' || !state.buzzEpoch) return;
     if((state.lockedOut || []).includes(myPlayerId)) return;
+    // on a wager round only players who anted into the pot may buzz
+    if(state.wagerActive && !(state.antes && state.antes[myPlayerId] !== undefined)) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
     playBuzzFor(me || { id: myPlayerId });
@@ -945,6 +1047,31 @@
         ts: { '.sv':'timestamp' }
       }) });
     }catch(e){ console.error(e); }
+    renderPlayer();
+  }
+
+  // player antes into the pot (or declares they're in for all they have).
+  // Writes only their own key, like buzzing, so simultaneous antes don't clash.
+  async function placeAnte(){
+    if(!myPlayerId) return;
+    const state = await getGameState();
+    if(!state.wagerActive || state.wagerPhase !== 'betting' || !state.anteEpoch) return;
+    const players = await getPlayers();
+    const me = players.find(p => p.id === myPlayerId);
+    const amount = Math.min(state.ante || 0, me ? (me.score || 0) : 0);
+    try{
+      await fetch(anteUrl(state.anteEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
+        id: myPlayerId, name: me ? me.name : myPlayerName, avatar: me ? me.avatar : '', amount
+      }) });
+    }catch(e){ console.error(e); }
+    playSound('join');
+    renderPlayer();
+  }
+  async function cancelAnte(){
+    if(!myPlayerId) return;
+    const state = await getGameState();
+    if(!state.wagerActive || state.wagerPhase !== 'betting' || !state.anteEpoch) return;
+    try{ await fetch(anteUrl(state.anteEpoch, myPlayerId), { method:'DELETE' }); }catch(e){}
     renderPlayer();
   }
 
@@ -1061,6 +1188,8 @@
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const isLobby = !state.roundId;
     const showStandings = !!state.showStandings;
+    const betting = state.wagerActive && state.wagerPhase === 'betting';
+    const bettingAntes = betting ? await fetchAntes(state.anteEpoch) : {};
 
     if(buzz){
       const key = (state.buzzEpoch || '') + ':' + buzz.id;
@@ -1106,6 +1235,28 @@
 
     if(showStandings){
       centre = standingsHTML(players);
+    } else if(betting){
+      const inList = Object.values(bettingAntes).filter(a => a && a.id);
+      // state.pot already holds house seed + any rolled-over carry; antes add on top
+      const livePot = (state.pot || 0) + sumAntes(bettingAntes);
+      centre = `
+        <div class="qb-wager-splash">
+          <div class="qb-wager-title">💰 WAGER ROUND</div>
+          <div class="qb-pot">Pot: <span>${livePot}</span> pts</div>
+          <div class="qb-wager-in">${inList.length ? inList.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')}</span>`).join('') : 'Waiting for players to ante up&hellip;'}</div>
+        </div>
+        <div class="qb-rules">
+          <h3>💰 Wager round rules</h3>
+          <ol>
+            <li>Pay the <strong>${state.ante}-point ante</strong> on your phone to get in. Skint? You can go all-in for what you've got.</li>
+            <li><strong>No ante, no buzzer</strong> &mdash; if you don't pay in, you sit this one out.</li>
+            <li>Everyone's antes${state.houseSeed ? ' (plus the house seed)' : ''} build the <strong>pot</strong>.</li>
+            <li>Buzz in and answer as normal &mdash; artist <strong>and</strong> song.</li>
+            <li>Winner takes the <strong>whole pot</strong> on top of the layer points.</li>
+            <li>If nobody gets it, the pot <strong>rolls over</strong> to the next wager round.</li>
+          </ol>
+        </div>
+      `;
     } else if(isLobby){
       centre = `
         <div class="qb-lobby">
@@ -1126,7 +1277,8 @@
             <li>Say <strong>BOTH the ARTIST and the SONG NAME</strong> out loud &mdash; you need both to win the points.</li>
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
-            <li>You only get <strong>one guess per song</strong>, so buzz when you're sure!</li>
+            <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
+            <li>💰 Watch for <strong>wager rounds</strong> &mdash; ante your points into a pot and the winner takes the lot!</li>
           </ol>
         </div>
       `;
@@ -1135,24 +1287,30 @@
       if(state.winnerId){
         winnerLine = `${state.winnerAvatar || ''} ${esc(state.winnerName || '')} got it, +${state.pointsAwarded} points`;
       }
+      const potLine = state.potWon ? `<div class="qb-pot-line">💰 and scooped the ${state.potWon}-point pot!</div>`
+        : state.potRolled ? `<div class="qb-pot-line">💰 the ${state.potRolled}-point pot rolls over to the next wager round</div>` : '';
       centre = `
         <div class="qb-reveal-box">
           <div class="qb-small">The answer was</div>
           <div class="song">${esc(state.songTitle || 'Unknown')}</div>
           <div class="artist">${esc(state.artist || '')}</div>
           <div class="winner-line">${winnerLine}</div>
+          ${potLine}
         </div>
       `;
     } else if(state.status === 'live' && buzz){
       stagePill = currentStage ? `<div class="qb-stage-pill">${esc(currentStage.label)} &middot; ${currentStage.points} pt${currentStage.points===1?'':'s'} up for grabs</div>` : '';
       const rt = (state.buzzersOpenedAt && buzz.ts && buzz.ts > state.buzzersOpenedAt)
         ? ((buzz.ts - state.buzzersOpenedAt) / 1000).toFixed(2) : null;
+      // bake the live remaining value into the markup so the 900ms poll re-render
+      // doesn't reset the number and make it jump; the 200ms ticker keeps it moving
+      const remain = displayBuzzTimer ? Math.max(0, Math.ceil((displayBuzzTimer.endsAt - Date.now()) / 1000)) : ANSWER_SECONDS;
       centre = `
         <div class="qb-buzz-flash">
           <div class="qb-buzz-avatar">${buzz.avatar || ''}</div>
           <div class="who">${esc(buzz.name || 'Someone')}</div>
           ${rt ? `<div class="qb-reaction">⚡ buzzed in ${rt}s</div>` : ''}
-          <div class="qb-countdown" id="qb-countdown">${ANSWER_SECONDS}</div>
+          <div class="qb-countdown" id="qb-countdown">${remain}</div>
         </div>
       `;
     } else if(state.status === 'live'){
@@ -1170,6 +1328,7 @@
         </div>
         <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
         <h1 class="qb-title">The Music Quiz</h1>
+        ${state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Playing for a ${state.pot}-point pot</div>` : ''}
         ${stagePill}
         ${centre}
         ${!showStandings && state.status === 'live' && (state.lockedOut || []).length ? `<div class="qb-out-row">Out this round: ${(state.lockedOut || []).map(id => { const p = players.find(x => x.id === id); return p ? `<span class="qb-out-chip">❌ ${p.avatar} ${esc(p.name)}</span>` : ''; }).join('')}</div>` : ''}
@@ -1363,6 +1522,9 @@
     formSong = '';
     formArtist = '';
     formStages = [1,2,3,4,5].map(n => newStageRow(n, 6 - n));
+    formWager = false;
+    formAnte = 2;
+    formHouseSeed = 0;
     renderAdmin();
   }
 
@@ -1372,6 +1534,9 @@
     formSong = round.songTitle || '';
     formArtist = round.artist || '';
     formStages = round.stages.map(s => ({label:s.label, points:s.points}));
+    formWager = !!round.isWager;
+    formAnte = round.ante || 2;
+    formHouseSeed = round.houseSeed || 0;
     renderAdmin();
   }
 
@@ -1399,6 +1564,12 @@
     if(labelEl) formLabel = labelEl.value;
     if(songEl) formSong = songEl.value;
     if(artistEl) formArtist = artistEl.value;
+    const wagerEl = document.getElementById('qb-round-wager');
+    const anteEl = document.getElementById('qb-round-ante');
+    const seedEl = document.getElementById('qb-round-seed');
+    if(wagerEl) formWager = wagerEl.checked;
+    if(anteEl) formAnte = Math.max(1, parseInt(anteEl.value, 10) || 1);
+    if(seedEl) formHouseSeed = Math.max(0, parseInt(seedEl.value, 10) || 0);
     document.querySelectorAll('.qb-stage-row').forEach((rowEl, idx) => {
       const labelInput = rowEl.querySelector('.qb-label-input');
       const pointsInput = rowEl.querySelector('.qb-points-input');
@@ -1422,7 +1593,8 @@
         label: formLabel.trim() || `Round ${rounds.length + 1}`,
         songTitle: song,
         artist: formArtist.trim(),
-        stages: formStages.map(s => ({label:s.label.trim(), points:s.points}))
+        stages: formStages.map(s => ({label:s.label.trim(), points:s.points})),
+        isWager: formWager, ante: formAnte, houseSeed: formHouseSeed
       });
     } else {
       const existing = rounds.find(r => r.id === formOpen);
@@ -1431,6 +1603,7 @@
         existing.songTitle = song;
         existing.artist = formArtist.trim();
         existing.stages = formStages.map(s => ({label:s.label.trim(), points:s.points}));
+        existing.isWager = formWager; existing.ante = formAnte; existing.houseSeed = formHouseSeed;
       }
     }
     await saveRounds(rounds);
@@ -1450,7 +1623,6 @@
     const r = rounds.find(x => x.id === id);
     if(!r) return false;
     const s = defaultState();
-    s.status = 'live';
     s.roundId = r.id;
     s.roundLabel = r.label;
     s.songTitle = r.songTitle;
@@ -1459,6 +1631,47 @@
     s.stageIndex = 0;
     s.roundNumber = rounds.indexOf(r) + 1;
     s.roundTotal = rounds.length;
+    if(r.isWager){
+      // betting phase first: buzzers stay shut until the host closes the kitty
+      const carry = await getCarryPot();
+      s.status = 'live';
+      s.wagerActive = true;
+      s.wagerPhase = 'betting';
+      s.ante = r.ante || 2;
+      s.houseSeed = r.houseSeed || 0;
+      s.pot = (r.houseSeed || 0) + carry;
+      s.anteEpoch = makeId('a');
+      s.buzzEpoch = '';   // no buzzing yet
+    } else {
+      s.status = 'live';
+      s.buzzEpoch = makeId('e');
+    }
+    await saveGameState(s);
+    if(!r.isWager) await stampBuzzersOpened();
+    renderAdmin();
+  }
+
+  // host closes the kitty: antes are deducted from scores now (single writer, no
+  // race), the pot is locked in, and buzzers open for the players who paid in
+  async function closeBetting(){
+    const s = await getGameState();
+    if(!s.wagerActive || s.wagerPhase !== 'betting') return false;
+    const antes = await fetchAntes(s.anteEpoch);
+    const players = await getPlayers();
+    const anteMap = {};
+    Object.values(antes).forEach(a => {
+      if(!a || !a.id) return;
+      const p = players.find(pl => pl.id === a.id);
+      if(!p) return;
+      const paid = Math.min(a.amount || 0, p.score || 0); // all-in if short
+      p.score = (p.score || 0) - paid;
+      anteMap[a.id] = paid;
+    });
+    await savePlayers(players);
+    s.antes = anteMap;
+    s.pot = (s.houseSeed || 0) + (await getCarryPot()) + Object.values(anteMap).reduce((t, n) => t + n, 0);
+    await setCarryPot(0);
+    s.wagerPhase = 'playing';
     s.buzzEpoch = makeId('e');
     await saveGameState(s);
     await stampBuzzersOpened();
@@ -1484,6 +1697,8 @@
     if(s.status === 'reveal') return false;
     s.status = 'reveal';
     s.winnerId = null; s.winnerName = null; s.winnerAvatar = null; s.pointsAwarded = null;
+    // an unclaimed kitty rolls over to the next wager round
+    if(s.wagerActive && s.pot){ await setCarryPot(s.pot); s.potRolled = s.pot; s.wagerActive = false; s.pot = 0; }
     await saveGameState(s);
     renderAdmin();
   }
@@ -1504,10 +1719,11 @@
     const stage = s.stages[s.stageIndex];
     let points = stage ? stage.points : 0;
     if(half) points = Math.ceil(points / 2);
+    const potWon = s.wagerActive ? (s.pot || 0) : 0;   // wager winner scoops the kitty too
     const players = await getPlayers();
     const p = players.find(pl => pl.id === buzz.id);
     if(p){
-      p.score = (p.score || 0) + points;
+      p.score = (p.score || 0) + points + potWon;
       recordReaction(p, buzz, s);
     }
     await savePlayers(players);
@@ -1517,6 +1733,8 @@
     s.winnerName = buzz.name;
     s.winnerAvatar = buzz.avatar;
     s.pointsAwarded = points;
+    s.potWon = potWon;
+    if(s.wagerActive){ s.wagerActive = false; s.pot = 0; }
     await saveGameState(s);
     renderAdmin();
   }
@@ -1551,6 +1769,7 @@
     const players = await getPlayers();
     players.forEach(p => { p.score = 0; delete p.bestReaction; delete p.buzzes; });
     await savePlayers(players);
+    await setCarryPot(0);
     await saveGameState(defaultState());
     renderAdmin();
   }
@@ -1575,6 +1794,23 @@
           </div>
         `).join('')}
         <button class="qb-btn qb-btn-ghost qb-btn-small" style="margin-bottom:16px;" data-action="add-stage">+ Add another layer</button>
+        <label class="qb-wager-toggle">
+          <input type="checkbox" id="qb-round-wager" data-action="toggle-wager" ${formWager ? 'checked' : ''} />
+          <span>💰 Make this a <strong>wager round</strong> (players ante points into a pot; winner takes it)</span>
+        </label>
+        ${formWager ? `
+          <div class="qb-wager-fields">
+            <div>
+              <label class="qb-label">Ante (points to play)</label>
+              <input class="qb-input" id="qb-round-ante" type="number" min="1" value="${formAnte}" style="margin-bottom:0;" />
+            </div>
+            <div>
+              <label class="qb-label">House seed (optional)</label>
+              <input class="qb-input" id="qb-round-seed" type="number" min="0" value="${formHouseSeed}" style="margin-bottom:0;" />
+            </div>
+          </div>
+          <p class="qb-small" style="margin:8px 0 16px;">Players who don't ante can't buzz this round. An unclaimed pot rolls over to your next wager round.</p>
+        ` : ''}
         <div class="qb-row-2">
           <button class="qb-btn qb-btn-ghost" data-action="cancel-form">Cancel</button>
           <button class="qb-btn qb-btn-primary" data-action="save-round">Save round</button>
@@ -1698,17 +1934,36 @@
       adminBuzzTimer = null;
     }
 
+    const betting = state.wagerActive && state.wagerPhase === 'betting';
+    const liveAntes = betting ? await fetchAntes(state.anteEpoch) : {};
+
     let nowPlayingSection = '';
     if(state.roundId){
       const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
       const isLastStage = state.stageIndex >= state.stages.length - 1;
 
+      let bettingPanel = '';
+      if(betting){
+        const inList = Object.values(liveAntes).filter(a => a && a.id);
+        const livePot = (state.pot || 0) + sumAntes(liveAntes);
+        bettingPanel = `
+          <div class="qb-buzzed-banner">
+            <div class="qb-small">💰 WAGER ROUND &middot; betting open</div>
+            <div class="who">Pot: ${livePot} pts</div>
+            <div class="qb-small" style="margin-bottom:12px;">${inList.length} in so far${inList.length ? ': ' + inList.map(a => `${a.avatar || ''} ${esc(a.name || '')}`).join(', ') : ''}</div>
+            <button class="qb-btn qb-btn-gold" data-action="close-betting">Close the kitty &amp; open buzzers</button>
+          </div>
+        `;
+      }
+
       let buzzedSection = '';
-      if(state.status === 'live' && liveBuzz){
+      if(state.status === 'live' && !betting && liveBuzz){
         const halfPts = currentStage ? Math.ceil(currentStage.points / 2) : 0;
+        const remainAdmin = adminBuzzTimer ? Math.ceil((adminBuzzTimer.endsAt - Date.now()) / 1000) : ANSWER_SECONDS;
+        const remainText = remainAdmin > 0 ? remainAdmin + 's to answer' : "time's up — your call";
         buzzedSection = `
           <div class="qb-buzzed-banner">
-            <div class="qb-small">Buzzed in &middot; <span id="qb-admin-countdown"></span></div>
+            <div class="qb-small">Buzzed in &middot; <span id="qb-admin-countdown">${remainText}</span></div>
             <div class="who">${liveBuzz.avatar || ''} ${esc(liveBuzz.name || '')}</div>
             <div class="qb-row-2">
               <button class="qb-btn qb-btn-gold" data-action="mark-correct">Correct (+${currentStage ? currentStage.points : 0})</button>
@@ -1720,7 +1975,7 @@
       }
 
       let stageControls = '';
-      if(state.status === 'live' && !liveBuzz){
+      if(state.status === 'live' && !betting && !liveBuzz){
         stageControls = `
           <div class="qb-row-2">
             ${!isLastStage ? `<button class="qb-btn" data-action="next-stage">No one got it, add next layer</button>` : ''}
@@ -1733,10 +1988,11 @@
         <div class="qb-admin-section">
           <h3>Now playing</h3>
           <div class="qb-now-playing">
-            <div class="np-label">${esc(state.roundLabel || '')} &middot; hidden from players until reveal</div>
+            <div class="np-label">${esc(state.roundLabel || '')} &middot; hidden from players until reveal${state.wagerActive ? ' &middot; 💰 wager, pot ' + (state.wagerPhase === 'playing' ? state.pot : ((state.pot||0) + sumAntes(liveAntes))) + ' pts' : ''}</div>
             <div class="np-song">${esc(state.songTitle || '')} &mdash; ${esc(state.artist || '')}</div>
             <div class="qb-small">${state.status === 'reveal' ? 'Revealed' : `Layer ${state.stageIndex + 1} of ${state.stages.length}: ${esc(currentStage ? currentStage.label : '')} (${currentStage ? currentStage.points : 0} pts)`}</div>
           </div>
+          ${bettingPanel}
           ${buzzedSection}
           ${stageControls}
         </div>
@@ -1749,8 +2005,8 @@
         <div class="qb-round-row">
           <div class="rr-top">
             <div>
-              <div class="rr-title">${esc(r.label)}</div>
-              <div class="rr-meta">${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${r.stages.length} layers</div>
+              <div class="rr-title">${esc(r.label)} ${r.isWager ? '<span class="qb-wager-tag">💰 WAGER</span>' : ''}</div>
+              <div class="rr-meta">${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${r.stages.length} layers${r.isWager ? ` &middot; ante ${r.ante}${r.houseSeed ? ` +${r.houseSeed} seed` : ''}` : ''}</div>
             </div>
           </div>
           <div class="rr-actions">
@@ -1856,6 +2112,13 @@
           const nameEl = document.getElementById('qb-name-input');
           if(nameEl) joinDraftName = nameEl.value;
           renderJoin(true);
+        } else if(action === 'pick-buzzer'){
+          joinDraftSound = parseInt(el.getAttribute('data-sound'), 10);
+          const nameEl = document.getElementById('qb-name-input');
+          if(nameEl) joinDraftName = nameEl.value;
+          ensureAudio();            // the tap also unlocks audio on iOS
+          playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer
+          renderJoin(true);
         } else if(action === 'submit-join'){
           submitJoin();
         } else if(action === 'resume-player'){
@@ -1864,6 +2127,12 @@
           claimPlayer(el.getAttribute('data-id'));
         } else if(action === 'buzz'){
           buzzIn();
+        } else if(action === 'place-ante'){
+          placeAnte();
+        } else if(action === 'cancel-ante'){
+          cancelAnte();
+        } else if(action === 'close-betting'){
+          withUndo('closing the betting', closeBetting);
         } else if(action === 'mark-correct'){
           withUndo('marking that answer correct', () => markCorrect(false));
         } else if(action === 'mark-correct-half'){
@@ -1914,6 +2183,9 @@
           deleteRound(el.getAttribute('data-id'));
         } else if(action === 'load-round'){
           withUndo('loading that round', () => loadRoundToPlay(el.getAttribute('data-id')));
+        } else if(action === 'toggle-wager'){
+          readFormFromDOM();   // the checkbox's own .checked is already the new value
+          renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();
           addStageRow();
