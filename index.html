@@ -236,6 +236,18 @@
     to{transform:translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(0.6);opacity:0;}
   }
 
+  /* standings screen on the projector */
+  .qb-standings{max-width:640px;margin:0 auto 34px;}
+  .qb-standing-row{
+    display:flex;align-items:center;gap:18px;
+    background:var(--panel);border-radius:14px;padding:16px 24px;margin-bottom:10px;
+    font-size:26px;font-weight:700;
+  }
+  .qb-standing-row.leader{background:var(--panel-light);border:2px solid var(--gold);}
+  .qb-standing-row .rank{width:52px;text-align:center;}
+  .qb-standing-row .who{flex:1;text-align:left;}
+  .qb-standing-row .pts{font-family:'Archivo Black',sans-serif;color:var(--gold);font-size:30px;}
+
   /* rules card on the lobby screen */
   .qb-rules{
     background:var(--panel);border-radius:20px;padding:24px 32px;margin:0 auto 30px;
@@ -395,6 +407,11 @@
     return (prefix||'p') + '_' + Math.random().toString(36).slice(2,9) + Date.now().toString(36).slice(-4);
   }
 
+  async function sha256Hex(str){
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
   // ---------- sound effects: synthesized with Web Audio, so no audio files needed ----------
   let audioCtx = null;
   let soundOn = true;
@@ -536,6 +553,7 @@
     if(!code){ alert('Enter the game code first.'); return; }
     bucket = code;
     codeDraft = '';
+    adminUnlocked = false; // different game, so the password check must run again
     updateUrlBar();
     view = targetView;
     render();
@@ -801,6 +819,19 @@
     document.body.appendChild(overlay);
     setTimeout(() => overlay.remove(), 3400);
   }
+  function standingsHTML(players){
+    const sorted = sortedPlayers(players);
+    if(!sorted.length) return `<div class="qb-idle-box">No players have joined yet</div>`;
+    const medals = ['🥇','🥈','🥉'];
+    return `<div class="qb-standings">` + sorted.map((p, i) => `
+      <div class="qb-standing-row ${i === 0 ? 'leader' : ''}">
+        <span class="rank">${medals[i] || (i + 1) + '.'}</span>
+        <span class="who">${p.avatar} ${esc(p.name)}</span>
+        <span class="pts">${p.score}</span>
+      </div>
+    `).join('') + `</div>`;
+  }
+
   function joinedPlayersHTML(players){
     if(players.length === 0) return `<p class="qb-small">Waiting for the first player to join&hellip;</p>`;
     return `<div class="qb-lobby-grid">` + players.map(p => `
@@ -851,6 +882,7 @@
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const isLobby = !state.roundId;
+    const showStandings = !!state.showStandings;
 
     // the display is the tab being cast, so it's the room's speaker and hype man:
     // whenever the polled state shows something happened, play a sound and, for
@@ -882,7 +914,9 @@
     let stagePill = '';
     let centre;
 
-    if(isLobby){
+    if(showStandings){
+      centre = standingsHTML(players);
+    } else if(isLobby){
       centre = `
         <div class="qb-lobby">
           <div class="qb-qr-box">
@@ -898,7 +932,8 @@
           <h3>How it works</h3>
           <ol>
             <li>A song plays one instrument layer at a time &mdash; the fewer layers you need, the more points you get.</li>
-            <li>Know it? Hit <strong>BUZZ</strong>. First buzz locks everyone else out while you answer out loud.</li>
+            <li>Know it? Hit <strong>BUZZ</strong>. First buzz locks everyone else out.</li>
+            <li>Say <strong>BOTH the ARTIST and the SONG NAME</strong> out loud &mdash; you need both to win the points.</li>
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>You only get <strong>one guess per song</strong>, so buzz when you're sure!</li>
@@ -939,19 +974,19 @@
           ${backLink('home','&larr; Back')}
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
-        <div class="round-tag">${isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round')}</div>
+        <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round')}</div>
         <h1 class="qb-title">The Music Quiz</h1>
         ${stagePill}
         ${centre}
-        ${isLobby ? reachWarningHTML() : scoreboardHTML(players, true)}
-        ${!isLobby && state.status !== 'live' ? joinStripHTML() : ''}
+        ${showStandings ? '' : isLobby ? reachWarningHTML() : scoreboardHTML(players, true)}
+        ${showStandings || (!isLobby && state.status !== 'live') ? joinStripHTML() : ''}
       </div>
     `;
     bindActions();
 
-    if(isLobby){
+    if(!showStandings && isLobby){
       renderQrInto('qb-qr-canvas', 190);
-    } else if(state.status !== 'live'){
+    } else if(showStandings || state.status !== 'live'){
       renderQrInto('qb-qr-mini-canvas', 96);
     }
 
@@ -962,6 +997,41 @@
 
   // ---------- ADMIN ----------
   let adminPoll = null;
+
+  // admin password gate. This keeps players from wandering into the host screen
+  // by editing the URL; it is a lock on the door, not a vault (the app is all
+  // client-side, so a determined snoop could still read the shared data).
+  // The hash lives in the game's data; the host's own browser remembers the
+  // password so they are never re-prompted on their machine.
+  let adminUnlocked = false;
+  async function getAdminHash(){
+    const text = await kvGet('qb-admin');
+    if(!text) return null;
+    try{ return JSON.parse(text); }catch(e){ return null; }
+  }
+  async function isAdminUnlocked(){
+    if(adminUnlocked) return true;
+    const hash = await getAdminHash();
+    if(!hash){ adminUnlocked = true; return true; } // games created before passwords existed
+    try{
+      const saved = localStorage.getItem('qb-adminpass:' + bucket);
+      if(saved && await sha256Hex(saved) === hash){ adminUnlocked = true; return true; }
+    }catch(e){}
+    return false;
+  }
+  async function unlockAdmin(){
+    const el = document.getElementById('qb-admin-pass-try');
+    const pass = el ? el.value.trim() : '';
+    if(!pass){ alert('Enter the admin password.'); return; }
+    const hash = await getAdminHash();
+    if(hash && await sha256Hex(pass) === hash){
+      adminUnlocked = true;
+      try{ localStorage.setItem('qb-adminpass:' + bucket, pass); }catch(e){}
+      renderAdmin();
+    } else {
+      alert('Wrong password.');
+    }
+  }
 
   // host-side undo: snapshot the shared scores + game state just before each
   // host action, so a mis-click ("marked the wrong answer correct") can be
@@ -987,6 +1057,13 @@
       kvSet('qb-state', snap.state || JSON.stringify(defaultState())),
       kvSet('qb-players', JSON.stringify(restored))
     ]);
+    renderAdmin();
+  }
+
+  async function toggleStandings(){
+    const s = await getGameState();
+    s.showStandings = !s.showStandings;
+    await saveGameState(s);
     renderAdmin();
   }
 
@@ -1035,9 +1112,10 @@
     return { label: n === 1 ? '1 Track Layer' : n + ' Track Layers', points: points };
   }
 
-  function openAddForm(){
+  async function openAddForm(){
+    const rounds = await getRounds();
     formOpen = 'add';
-    formLabel = '';
+    formLabel = 'Round ' + (rounds.length + 1);
     formSong = '';
     formArtist = '';
     formStages = [1,2,3,4,5].map(n => newStageRow(n, 6 - n));
@@ -1239,6 +1317,12 @@
       alert('The database URL has not been set up yet. Open this file and paste your Firebase database URL into FIREBASE_DB_URL.');
       return;
     }
+    const passEl = document.getElementById('qb-admin-pass');
+    const pass = passEl ? passEl.value.trim() : '';
+    if(!pass){
+      alert('Set an admin password first. It keeps players out of this host screen if they fiddle with the link.');
+      return;
+    }
     const btn = document.getElementById('qb-start-session-btn');
     if(btn){ btn.disabled = true; btn.textContent = 'Starting…'; }
     bucket = makeGameCode();
@@ -1250,6 +1334,9 @@
       renderAdmin();
       return;
     }
+    await kvSet('qb-admin', JSON.stringify(await sha256Hex(pass)));
+    try{ localStorage.setItem('qb-adminpass:' + bucket, pass); }catch(e){}
+    adminUnlocked = true;
     view = 'admin';
     updateUrlBar();
     renderAdmin();
@@ -1260,6 +1347,7 @@
     const code = (el ? el.value : codeDraft).trim().toLowerCase();
     if(!code){ alert('Enter the game code first.'); return; }
     bucket = code;
+    adminUnlocked = false; // different game, so the password check must run again
     view = 'admin';
     updateUrlBar();
     renderAdmin();
@@ -1282,6 +1370,8 @@
       <div class="qb-card">
         <h2 class="qb-title" style="font-size:22px;margin-top:0;">Start hosting</h2>${setupWarning}
         <p class="qb-small">This creates a game code that links your admin, the projector display and your friends' phones together. No accounts needed.</p>
+        <label class="qb-label">Admin password</label>
+        <input class="qb-input" id="qb-admin-pass" type="password" maxlength="40" placeholder="Stops players opening this host screen" />
         <button class="qb-btn qb-btn-primary" id="qb-start-session-btn" data-action="start-session">Start new game</button>
         <p class="qb-small" style="margin-top:18px;">Already started one and lost the tab? Enter your game code:</p>
         <input class="qb-input" id="qb-code-input" placeholder="Game code" value="${esc(codeDraft)}" />
@@ -1290,7 +1380,7 @@
     `;
   }
 
-  function sessionInfoHTML(){
+  function sessionInfoHTML(state){
     return `
       <div class="qb-admin-section">
         <h3>Session</h3>
@@ -1300,6 +1390,7 @@
         </div>
         <button class="qb-btn qb-btn-small" data-action="copy-link" data-kind="display">Copy projector display link</button>
         <button class="qb-btn qb-btn-small" data-action="copy-link" data-kind="join">Copy join link (or use the QR on the display)</button>
+        <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Projector: back to the game screen' : 'Projector: show score standings'}</button>
         ${pageReachableByPhones() ? '' : `<p class="qb-small" style="color:#e0a03a;">These links point at this computer only, so other devices can't open them. Put the file online (e.g. GitHub Pages or Netlify) and host from that address.</p>`}
       </div>
     `;
@@ -1308,6 +1399,19 @@
   async function renderAdmin(){
     if(!bucket){
       root.innerHTML = `${backLink('home','&larr; Back')}${sessionSetupHTML()}`;
+      bindActions();
+      return;
+    }
+    if(!await isAdminUnlocked()){
+      root.innerHTML = `
+        ${backLink('home','&larr; Back')}
+        <div class="qb-card">
+          <h2 class="qb-title" style="font-size:22px;margin-top:0;">Host access only</h2>
+          <p class="qb-small">This is the quiz host's control screen. Enter the admin password to open it.</p>
+          <input class="qb-input" id="qb-admin-pass-try" type="password" placeholder="Admin password" />
+          <button class="qb-btn qb-btn-primary" data-action="unlock-admin">Unlock</button>
+        </div>
+      `;
       bindActions();
       return;
     }
@@ -1380,7 +1484,7 @@
         <h2 class="qb-title" style="font-size:22px;margin-top:0;">Host admin</h2>
         <p class="qb-small">${players.length} player${players.length===1?'':'s'} joined</p>
 
-        ${sessionInfoHTML()}
+        ${sessionInfoHTML(state)}
 
         ${nowPlayingSection}
 
@@ -1496,6 +1600,10 @@
           savePlayerEdit();
         } else if(action === 'cancel-edit-player'){
           closePlayerEditor();
+        } else if(action === 'unlock-admin'){
+          unlockAdmin();
+        } else if(action === 'toggle-standings'){
+          toggleStandings();
         } else if(action === 'undo'){
           undoLast();
         } else if(action === 'toggle-sound'){
