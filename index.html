@@ -129,7 +129,11 @@
 
   /* Display (projector) mode */
   .qb-display{width:100%;max-width:1100px;text-align:center;}
-  .qb-display .round-tag{color:var(--text-dim);letter-spacing:3px;text-transform:uppercase;font-size:14px;margin-bottom:6px;}
+  .qb-display .round-tag{
+    color:var(--gold);font-family:'Archivo Black',sans-serif;
+    letter-spacing:2px;text-transform:uppercase;font-size:28px;margin-bottom:4px;
+  }
+  .qb-display .round-tag .of{color:var(--text-dim);font-size:20px;letter-spacing:1px;}
   .qb-display .qb-title{font-size:44px;margin:0 0 20px;}
   .qb-display .qb-stage-pill{font-size:18px;padding:10px 22px;margin-bottom:26px;}
   .qb-buzz-flash{
@@ -248,6 +252,42 @@
   .qb-standing-row .who{flex:1;text-align:left;}
   .qb-standing-row .pts{font-family:'Archivo Black',sans-serif;color:var(--gold);font-size:30px;}
 
+  /* answer countdown + reaction time inside the buzz flash */
+  .qb-countdown{font-family:'Archivo Black',sans-serif;font-size:64px;margin-top:10px;}
+  .qb-reaction{font-size:24px;font-weight:700;margin-top:8px;opacity:0.95;}
+
+  /* who's locked out this round */
+  .qb-out-row{margin:-8px 0 26px;color:var(--text-dim);font-size:18px;}
+  .qb-out-chip{background:var(--panel);padding:6px 14px;border-radius:18px;margin:0 5px;display:inline-block;color:var(--text);}
+
+  /* layer-advance and time's-up banners reuse the exploding banner */
+  .qb-banner.layer{background:var(--panel-light);color:var(--text);border:2px solid var(--gold);}
+  .qb-banner.timesup{background:var(--buzz);color:#fff;}
+
+  /* pulsing highlight for the podium button once the final round is revealed */
+  @keyframes qb-glow{0%,100%{box-shadow:0 0 0 0 rgba(244,185,66,0.7);}50%{box-shadow:0 0 0 12px rgba(244,185,66,0);}}
+  .qb-glow{animation:qb-glow 1.4s ease-in-out infinite;}
+
+  /* podium finale */
+  .qb-podium{display:flex;align-items:flex-end;justify-content:center;gap:22px;margin:26px auto 34px;min-height:360px;}
+  .qb-podium .slot{width:210px;opacity:0;transform:translateY(50px);transition:opacity .6s ease, transform .6s ease;}
+  .qb-podium .slot.shown{opacity:1;transform:none;}
+  .qb-podium .avatar{font-size:66px;}
+  .qb-podium .name{font-weight:800;font-size:26px;margin-top:4px;}
+  .qb-podium .score{font-family:'Archivo Black',sans-serif;color:var(--gold);font-size:22px;margin-top:2px;}
+  .qb-podium .block{
+    border-radius:14px 14px 0 0;margin-top:14px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Archivo Black',sans-serif;font-size:44px;color:#1b1f2e;
+  }
+  .qb-podium .block.first{background:var(--gold);}
+  .qb-podium .block.second{background:#c0c7d4;}
+  .qb-podium .block.third{background:#c98d5a;}
+  .qb-fastest{
+    background:var(--panel);border:2px solid var(--gold);border-radius:16px;
+    padding:16px 26px;font-size:24px;font-weight:700;max-width:640px;margin:0 auto 22px;
+  }
+
   /* rules card on the lobby screen */
   .qb-rules{
     background:var(--panel);border-radius:20px;padding:24px 32px;margin:0 auto 30px;
@@ -324,7 +364,8 @@
   let formArtist = '';
   let formStages = [];       // [{label, points}]
 
-  const AVATARS = ['🦊','🐸','🐧','🐢','🦁','🐨','🐯','🐵','🦄','🐙','🦖','🐝','🐮','🐼','🐔','🦉','🐳','🦅'];
+  const AVATARS = ['🦊','🐸','🐧','🐢','🦁','🐨','🐯','🐵','🦄','🐙','🦖','🐝','🐮','🐼','🐔','🦉','🐳','🦅',
+    '🦆','🦥','🦔','🐐','🦞','🦩','🦜','🐌','🦑','🦧','🐫','🦬','🥔','🥦','🧀','🌭','👽','🤖','🧙','🥸','🫠','🧌'];
 
   function defaultState(){
     return {
@@ -335,7 +376,9 @@
       artist:null,
       stages:[],
       stageIndex:0,
-      buzzedId:null, buzzedName:null, buzzedAvatar:null,
+      roundNumber:0, roundTotal:0,
+      buzzEpoch:'', buzzersOpenedAt:0,
+      showStandings:false, showPodium:false,
       lockedOut:[],
       winnerId:null, winnerName:null, winnerAvatar:null, pointsAwarded:null
     };
@@ -412,6 +455,45 @@
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
+  // ---------- race-free buzzing ----------
+  // Every buzz writes to its own key under the current "buzz epoch" (a fresh id
+  // minted whenever buzzers open), stamped with Firebase's *server* clock via the
+  // {'.sv':'timestamp'} placeholder. Nobody ever overwrites anyone: every view
+  // derives the winner as the entry with the earliest server timestamp.
+  const ANSWER_SECONDS = 15;
+  function buzzUrl(epoch, playerId){
+    return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
+      + '/qb-buzz-' + encodeURIComponent(epoch)
+      + (playerId ? '/' + encodeURIComponent(playerId) : '') + '.json';
+  }
+  async function fetchBuzzes(epoch){
+    if(!bucket || !epoch) return {};
+    try{
+      const res = await fetch(buzzUrl(epoch), { cache:'no-store' });
+      if(!res.ok) return {};
+      return (await res.json()) || {};
+    }catch(e){ return {}; }
+  }
+  function earliestBuzz(buzzes, lockedOut){
+    const locked = lockedOut || [];
+    const list = Object.values(buzzes || {}).filter(b => b && b.id && !locked.includes(b.id));
+    list.sort((a, b) => ((a.ts || 0) - (b.ts || 0)) || (a.id < b.id ? -1 : 1));
+    return list[0] || null;
+  }
+  function clearBuzzes(epoch){
+    if(!bucket || !epoch) return;
+    try{ fetch(buzzUrl(epoch), { method:'DELETE' }); }catch(e){}
+  }
+  // stamp the moment buzzers opened with the server clock, so reaction times
+  // compare server-time to server-time and phone clock drift never matters
+  async function stampBuzzersOpened(){
+    if(!bucket) return;
+    try{
+      await fetch(FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket) + '/qb-state/buzzersOpenedAt.json',
+        { method:'PUT', body:'{".sv":"timestamp"}' });
+    }catch(e){}
+  }
+
   // ---------- sound effects: synthesized with Web Audio, so no audio files needed ----------
   let audioCtx = null;
   let soundOn = true;
@@ -450,8 +532,67 @@
     wrong(){ tone(233, 0, 0.22, 'square', 0.25, 200); tone(196, 0.2, 0.45, 'square', 0.25, 147); },
     reveal(){ tone(392, 0, 0.2, 'triangle', 0.25); tone(330, 0.18, 0.35, 'triangle', 0.25); },
     join(){ tone(880, 0, 0.09, 'sine', 0.2); tone(1175, 0.08, 0.14, 'sine', 0.2); },
-    layer(){ tone(587, 0, 0.1, 'triangle', 0.22); tone(659, 0.1, 0.16, 'triangle', 0.22); }
+    layer(){ tone(587, 0, 0.1, 'triangle', 0.22); tone(659, 0.1, 0.16, 'triangle', 0.22); },
+    timesup(){ for(let i = 0; i < 3; i++){ tone(520, i * 0.3, 0.24, 'square', 0.4, 480); tone(260, i * 0.3, 0.24, 'sawtooth', 0.35, 240); } }
   };
+
+  // every player gets their own comedy buzzer, assigned at random when they join
+  const BUZZ_SOUNDS = [
+    { label:'Classic buzzer',   fn(){ tone(240,0,0.45,'sawtooth',0.4,190); tone(120,0,0.45,'square',0.3,95); } },
+    { label:'Angry duck',       fn(){ tone(380,0,0.12,'sawtooth',0.45,240); tone(360,0.16,0.16,'sawtooth',0.45,210); } },
+    { label:'Foghorn',          fn(){ tone(105,0,1.1,'sawtooth',0.45,92); tone(52,0,1.1,'square',0.3,46); } },
+    { label:'Laser battle',     fn(){ for(let i=0;i<3;i++) tone(1800,i*0.13,0.11,'square',0.3,220); } },
+    { label:'Boing',            fn(){ tone(420,0,0.3,'sawtooth',0.4,150); tone(150,0.28,0.2,'sawtooth',0.3,260); } },
+    { label:'Police siren',     fn(){ tone(520,0,0.4,'sine',0.45,960); tone(960,0.4,0.4,'sine',0.45,520); } },
+    { label:'Doorbell',         fn(){ tone(659,0,0.35,'sine',0.4); tone(523,0.3,0.5,'sine',0.4); } },
+    { label:'8-bit power-up',   fn(){ [262,330,392,523,659,784].forEach((f,i)=>tone(f,i*0.07,0.07,'square',0.3)); } },
+    { label:'Sad trombone',     fn(){ [233,220,208].forEach((f,i)=>tone(f,i*0.28,0.25,'sawtooth',0.35,f*0.97)); tone(196,0.84,0.7,'sawtooth',0.35,180); } },
+    { label:'UFO landing',      fn(){ tone(500,0,0.25,'sine',0.45,900); tone(900,0.25,0.25,'sine',0.45,500); tone(500,0.5,0.25,'sine',0.45,900); } },
+    { label:'Startled chicken', fn(){ [0,0.14,0.28].forEach(t=>tone(760,t,0.09,'square',0.3,520)); tone(980,0.5,0.4,'square',0.35,540); } },
+    { label:'Kazoo solo',       fn(){ [330,360,330,300,330].forEach((f,i)=>tone(f,i*0.11,0.12,'square',0.3,f+20)); } },
+    { label:'Whoopee cushion',  fn(){ let t=0; for(let i=0;i<7;i++){ const f=95-i*6; tone(f,t,0.1,'sawtooth',0.45,f*0.6); t+=0.075; } } },
+    { label:'Car alarm',        fn(){ for(let i=0;i<4;i++) tone(i%2?620:470,i*0.15,0.13,'square',0.35); } },
+    { label:'Dial-up modem',    fn(){ tone(1200,0,0.1,'square',0.25); tone(2000,0.12,0.1,'square',0.25); tone(900,0.24,0.12,'sawtooth',0.3,1600); tone(400,0.38,0.25,'square',0.25,1400); } },
+    { label:'Opera diva',       fn(){ tone(440,0,0.18,'triangle',0.4,520); tone(520,0.18,0.2,'triangle',0.45,660); tone(660,0.38,0.5,'triangle',0.5,880); } }
+  ];
+  function soundIndexFor(p){
+    if(p && Number.isInteger(p.buzzSound)) return p.buzzSound;
+    // older players joined before buzzer sounds existed: hash their id so
+    // everyone still gets a stable, personal sound
+    const id = p && p.id ? p.id : '';
+    let h = 0;
+    for(const c of id) h = (h + c.charCodeAt(0)) % 9973;
+    return h;
+  }
+  function playFx(fn){
+    if(!soundOn) return;
+    const ctx = ensureAudio();
+    if(!ctx || ctx.state !== 'running') return;
+    try{ fn(); }catch(e){}
+  }
+  function playBuzzFor(x){
+    const raw = x && Number.isInteger(x.sound) ? x.sound : soundIndexFor(x);
+    const i = ((raw % BUZZ_SOUNDS.length) + BUZZ_SOUNDS.length) % BUZZ_SOUNDS.length;
+    playFx(BUZZ_SOUNDS[i].fn);
+  }
+
+  // ~11 seconds of synthesized hype for the podium reveal; the stabs and the
+  // final chord line up with 3rd/2nd/1st appearing on screen
+  function playPodiumSong(){
+    playFx(() => {
+      const bass = [110, 110, 82.4, 98];
+      for(let bar = 0; bar < 10; bar++){
+        const f = bass[bar % 4];
+        for(let e = 0; e < 4; e++) tone(f, bar + e * 0.25, 0.2, 'sawtooth', 0.2);
+      }
+      const arp = [220, 262, 330, 440];
+      for(let i = 0; i < 40; i++) tone(arp[i % 4] * (i % 8 > 3 ? 2 : 1), i * 0.25, 0.12, 'triangle', 0.16);
+      for(let i = 0; i < 20; i++) tone(6000, i * 0.5 + 0.25, 0.03, 'square', 0.05);
+      [2.5, 5].forEach(t => [440, 523, 659].forEach(f => tone(f, t, 0.5, 'sawtooth', 0.16)));
+      tone(200, 7.6, 1.0, 'sawtooth', 0.25, 1400);
+      [440, 554, 659, 880].forEach(f => { tone(f, 8.6, 1.8, 'sawtooth', 0.2); tone(f / 2, 8.6, 1.8, 'triangle', 0.2); });
+    });
+  }
   function playSound(name){
     if(!soundOn || !SOUNDS[name]) return;
     const ctx = ensureAudio();
@@ -638,7 +779,7 @@
     if(!joinDraftAvatar){ alert('Pick a picture first.'); return; }
     const id = makeId('p');
     const players = await getPlayers();
-    players.push({ id, name, avatar: joinDraftAvatar, score: 0 });
+    players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: Math.floor(Math.random() * BUZZ_SOUNDS.length) });
     await savePlayers(players);
     saveStoredIdentity(id, name, joinDraftAvatar);
     myPlayerId = id;
@@ -716,7 +857,8 @@
     let stagePill = '';
 
     const iAmLockedOut = (state.lockedOut || []).includes(myPlayerId);
-    const iBuzzedIn = state.buzzedId === myPlayerId;
+    const liveBuzz = state.status === 'live' ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
+    const iBuzzedIn = !!liveBuzz && liveBuzz.id === myPlayerId;
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
 
     // phones only make sound for things that happened to *this* player;
@@ -742,10 +884,10 @@
     } else if(state.status === 'live'){
       stagePill = currentStage ? `<div class="qb-stage-pill">${esc(currentStage.label)} &middot; ${currentStage.points} pt${currentStage.points===1?'':'s'}</div>` : '';
       if(iBuzzedIn){
-        statusLine = "You buzzed in! Answer out loud now";
+        statusLine = "You buzzed in! Say the artist AND the song";
         statusSub = 'Waiting for the host to mark it right or wrong';
-      } else if(state.buzzedId){
-        statusLine = `${state.buzzedAvatar || ''} ${esc(state.buzzedName || 'Someone')} buzzed in first`;
+      } else if(liveBuzz){
+        statusLine = `${liveBuzz.avatar || ''} ${esc(liveBuzz.name || 'Someone')} buzzed in first`;
         statusSub = 'Buzzers are locked while they answer';
       } else if(iAmLockedOut){
         statusLine = 'Wrong this time &mdash; your buzzer is locked';
@@ -761,7 +903,10 @@
       <div class="qb-card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <span style="font-weight:700;">${myAvatar} ${esc(myPlayerName || '')}</span>
-          <span class="pts" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScore} pts</span>
+          <span style="display:flex;align-items:center;gap:12px;">
+            <button class="qb-back-link" style="margin:0;" data-action="toggle-sound" title="Buzzer sound on this phone">${soundOn ? '🔊' : '🔇'}</button>
+            <span class="pts" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScore} pts</span>
+          </span>
         </div>
         <div class="qb-buzzer-wrap">
           ${stagePill}
@@ -785,21 +930,28 @@
   async function buzzIn(){
     if(!myPlayerId) return;
     const state = await getGameState();
-    if(state.status !== 'live') return;
-    if(state.buzzedId) return;
+    if(state.status !== 'live' || !state.buzzEpoch) return;
     if((state.lockedOut || []).includes(myPlayerId)) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
-    state.buzzedId = myPlayerId;
-    state.buzzedName = me ? me.name : myPlayerName;
-    state.buzzedAvatar = me ? me.avatar : '';
-    playSound('buzz');
-    await saveGameState(state);
+    playBuzzFor(me || { id: myPlayerId });
+    // write only my own key; the earliest server timestamp decides who was first
+    try{
+      await fetch(buzzUrl(state.buzzEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
+        id: myPlayerId,
+        name: me ? me.name : myPlayerName,
+        avatar: me ? me.avatar : '',
+        sound: soundIndexFor(me || { id: myPlayerId }),
+        ts: { '.sv':'timestamp' }
+      }) });
+    }catch(e){ console.error(e); }
     renderPlayer();
   }
 
   // ---------- DISPLAY ----------
   let displayPoll = null;
+  let displayTick = null;
+  let displayBuzzTimer = null;
   let prevDisplaySnap = null;
 
   // big self-destructing result banner, appended to <body> so the 900ms
@@ -879,17 +1031,52 @@
       bindActions();
       return;
     }
+    if(!displayPoll){
+      displayPoll = setInterval(() => { if(view === 'display') renderDisplay(); }, 900);
+      // fine-grained ticker for the answer countdown and the TIME'S UP moment
+      displayTick = setInterval(() => {
+        if(view !== 'display' || !displayBuzzTimer) return;
+        const remain = Math.max(0, Math.ceil((displayBuzzTimer.endsAt - Date.now()) / 1000));
+        const el = document.getElementById('qb-countdown');
+        if(el) el.textContent = remain;
+        if(remain === 0 && !displayBuzzTimer.fired){
+          displayBuzzTimer.fired = true;
+          playSound('timesup');
+          showBanner('timesup', `⏰ TIME'S UP!<div style="font-size:26px;margin-top:10px;">Host's decision&hellip;</div>`);
+        }
+      }, 200);
+    }
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
+
+    // podium mode renders once and then leaves the DOM alone, so its staged
+    // reveal animations and music aren't restarted by the poll
+    if(state.showPodium){
+      prevDisplaySnap = null;
+      displayBuzzTimer = null;
+      if(!document.getElementById('qb-podium')) renderPodium(players);
+      return;
+    }
+
+    const buzz = state.status === 'live' ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const isLobby = !state.roundId;
     const showStandings = !!state.showStandings;
+
+    if(buzz){
+      const key = (state.buzzEpoch || '') + ':' + buzz.id;
+      if(!displayBuzzTimer || displayBuzzTimer.key !== key){
+        displayBuzzTimer = { key, endsAt: Date.now() + ANSWER_SECONDS * 1000, fired: false };
+      }
+    } else {
+      displayBuzzTimer = null;
+    }
 
     // the display is the tab being cast, so it's the room's speaker and hype man:
     // whenever the polled state shows something happened, play a sound and, for
     // right/wrong verdicts, fire the big exploding banner
     if(prevDisplaySnap){
       const prev = prevDisplaySnap;
-      if(state.buzzedId && state.buzzedId !== prev.buzzedId) playSound('buzz');
+      if(buzz && buzz.id !== prev.buzzedId) playBuzzFor(buzz);
       if(state.status === 'reveal' && prev.status !== 'reveal'){
         playSound(state.winnerId ? 'correct' : 'reveal');
         if(state.winnerId) showBanner('correct', `${state.winnerAvatar || ''} ${esc(state.winnerName || 'Someone')} got it correct!`);
@@ -899,13 +1086,16 @@
         playSound('wrong');
         showBanner('wrong', `${prev.buzzedAvatar || ''} ${esc(prev.buzzedName || 'Someone')} got it wrong!<div style="font-size:26px;margin-top:10px;">Buzzers open again</div>`);
       }
-      if(state.status === 'live' && prev.status === 'live' && (state.stageIndex||0) > prev.stageIndex && lockedCount <= prev.lockedCount) playSound('layer');
+      if(state.status === 'live' && prev.status === 'live' && (state.stageIndex||0) > prev.stageIndex){
+        playSound('layer');
+        showBanner('layer', `Layer ${(state.stageIndex||0) + 1} of ${(state.stages||[]).length}${currentStage ? `<div style="font-size:26px;margin-top:10px;">${esc(currentStage.label)} &middot; ${currentStage.points} pts up for grabs</div>` : ''}`);
+      }
       if(isLobby && players.length > prev.playerCount) playSound('join');
     }
     prevDisplaySnap = {
-      buzzedId: state.buzzedId || null,
-      buzzedName: state.buzzedName || null,
-      buzzedAvatar: state.buzzedAvatar || null,
+      buzzedId: buzz ? buzz.id : null,
+      buzzedName: buzz ? buzz.name : null,
+      buzzedAvatar: buzz ? buzz.avatar : null,
       status: state.status,
       lockedCount: (state.lockedOut || []).length,
       stageIndex: state.stageIndex || 0,
@@ -953,12 +1143,16 @@
           <div class="winner-line">${winnerLine}</div>
         </div>
       `;
-    } else if(state.status === 'live' && state.buzzedId){
+    } else if(state.status === 'live' && buzz){
       stagePill = currentStage ? `<div class="qb-stage-pill">${esc(currentStage.label)} &middot; ${currentStage.points} pt${currentStage.points===1?'':'s'} up for grabs</div>` : '';
+      const rt = (state.buzzersOpenedAt && buzz.ts && buzz.ts > state.buzzersOpenedAt)
+        ? ((buzz.ts - state.buzzersOpenedAt) / 1000).toFixed(2) : null;
       centre = `
         <div class="qb-buzz-flash">
-          <div class="qb-buzz-avatar">${state.buzzedAvatar || ''}</div>
-          <div class="who">${esc(state.buzzedName || 'Someone')}</div>
+          <div class="qb-buzz-avatar">${buzz.avatar || ''}</div>
+          <div class="who">${esc(buzz.name || 'Someone')}</div>
+          ${rt ? `<div class="qb-reaction">⚡ buzzed in ${rt}s</div>` : ''}
+          <div class="qb-countdown" id="qb-countdown">${ANSWER_SECONDS}</div>
         </div>
       `;
     } else if(state.status === 'live'){
@@ -974,10 +1168,11 @@
           ${backLink('home','&larr; Back')}
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
-        <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round')}</div>
+        <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
         <h1 class="qb-title">The Music Quiz</h1>
         ${stagePill}
         ${centre}
+        ${!showStandings && state.status === 'live' && (state.lockedOut || []).length ? `<div class="qb-out-row">Out this round: ${(state.lockedOut || []).map(id => { const p = players.find(x => x.id === id); return p ? `<span class="qb-out-chip">❌ ${p.avatar} ${esc(p.name)}</span>` : ''; }).join('')}</div>` : ''}
         ${showStandings ? '' : isLobby ? reachWarningHTML() : scoreboardHTML(players, true)}
         ${showStandings || (!isLobby && state.status !== 'live') ? joinStripHTML() : ''}
       </div>
@@ -989,14 +1184,54 @@
     } else if(showStandings || state.status !== 'live'){
       renderQrInto('qb-qr-mini-canvas', 96);
     }
+  }
 
-    if(!displayPoll){
-      displayPoll = setInterval(() => { if(view === 'display') renderDisplay(); }, 900);
-    }
+  // staged podium reveal: 3rd, then 2nd, then the winner, timed to the synth track
+  function renderPodium(players){
+    const sorted = sortedPlayers(players);
+    const rest = sorted.slice(3);
+    const fastest = players.filter(p => p.bestReaction).sort((a, b) => a.bestReaction - b.bestReaction)[0];
+    const slot = (p, cls, place, h) => p ? `
+      <div class="slot" id="qb-slot-${cls}">
+        <div class="avatar">${p.avatar}</div>
+        <div class="name">${esc(p.name)}</div>
+        <div class="score">${p.score} pts</div>
+        <div class="block ${cls}" style="height:${h}px;">${place}</div>
+      </div>` : '';
+    root.innerHTML = `
+      <div class="qb-display" id="qb-podium">
+        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+          ${backLink('home','&larr; Back')}
+          <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
+        </div>
+        <div class="round-tag">The final results</div>
+        <h1 class="qb-title">The Music Quiz</h1>
+        <div class="qb-podium">
+          ${slot(sorted[1], 'second', '2', 150)}
+          ${slot(sorted[0], 'first', '1', 220)}
+          ${slot(sorted[2], 'third', '3', 100)}
+        </div>
+        <div id="qb-podium-extra" style="opacity:0;transition:opacity .8s;">
+          ${fastest ? `<div class="qb-fastest">⚡ Fastest finger of the night: ${fastest.avatar} ${esc(fastest.name)} &mdash; ${(fastest.bestReaction / 1000).toFixed(2)}s</div>` : ''}
+          ${rest.length ? `<div class="qb-standings" style="max-width:520px;">${rest.map((p, i) => `
+            <div class="qb-standing-row"><span class="rank">${i + 4}.</span><span class="who">${p.avatar} ${esc(p.name)}</span><span class="pts">${p.score}</span></div>`).join('')}</div>` : ''}
+        </div>
+      </div>
+    `;
+    bindActions();
+    playPodiumSong();
+    const show = (cls, t) => setTimeout(() => { const el = document.getElementById('qb-slot-' + cls); if(el) el.classList.add('shown'); }, t);
+    show('third', 2500);
+    show('second', 5000);
+    show('first', 8600);
+    if(sorted[0]) setTimeout(() => showBanner('correct', `🏆 ${sorted[0].avatar} ${esc(sorted[0].name)} WINS!`), 8700);
+    setTimeout(() => { const el = document.getElementById('qb-podium-extra'); if(el) el.style.opacity = 1; }, 10200);
   }
 
   // ---------- ADMIN ----------
   let adminPoll = null;
+  let adminTick = null;
+  let adminBuzzTimer = null;
 
   // admin password gate. This keeps players from wandering into the host screen
   // by editing the URL; it is a lock on the door, not a vault (the app is all
@@ -1063,6 +1298,15 @@
   async function toggleStandings(){
     const s = await getGameState();
     s.showStandings = !s.showStandings;
+    if(s.showStandings) s.showPodium = false;
+    await saveGameState(s);
+    renderAdmin();
+  }
+
+  async function togglePodium(){
+    const s = await getGameState();
+    s.showPodium = !s.showPodium;
+    if(s.showPodium) s.showStandings = false;
     await saveGameState(s);
     renderAdmin();
   }
@@ -1213,18 +1457,25 @@
     s.artist = r.artist;
     s.stages = r.stages;
     s.stageIndex = 0;
+    s.roundNumber = rounds.indexOf(r) + 1;
+    s.roundTotal = rounds.length;
+    s.buzzEpoch = makeId('e');
     await saveGameState(s);
+    await stampBuzzersOpened();
     renderAdmin();
   }
 
   async function nextStage(){
     const s = await getGameState();
     if(s.stageIndex >= s.stages.length - 1) return false;
+    const oldEpoch = s.buzzEpoch;
     s.stageIndex += 1;
-    s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
     // lockedOut is left as is on purpose: one guess per round, not per layer
     s.status = 'live';
+    s.buzzEpoch = makeId('e');
     await saveGameState(s);
+    await stampBuzzersOpened();
+    clearBuzzes(oldEpoch);
     renderAdmin();
   }
 
@@ -1233,39 +1484,59 @@
     if(s.status === 'reveal') return false;
     s.status = 'reveal';
     s.winnerId = null; s.winnerName = null; s.winnerAvatar = null; s.pointsAwarded = null;
-    s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
     await saveGameState(s);
     renderAdmin();
   }
 
-  async function markCorrect(){
+  // a resolved buzz feeds the reaction-time stats shown on the buzz flash and podium
+  function recordReaction(p, buzz, s){
+    if(!p || !buzz || !buzz.ts || !s.buzzersOpenedAt) return;
+    const r = buzz.ts - s.buzzersOpenedAt;
+    if(r <= 0 || r > 120000) return;
+    p.buzzes = (p.buzzes || 0) + 1;
+    if(!p.bestReaction || r < p.bestReaction) p.bestReaction = r;
+  }
+
+  async function markCorrect(half){
     const s = await getGameState();
-    if(!s.buzzedId) return false;
+    const buzz = s.status === 'live' ? earliestBuzz(await fetchBuzzes(s.buzzEpoch), s.lockedOut) : null;
+    if(!buzz) return false;
     const stage = s.stages[s.stageIndex];
-    const points = stage ? stage.points : 0;
+    let points = stage ? stage.points : 0;
+    if(half) points = Math.ceil(points / 2);
     const players = await getPlayers();
-    const p = players.find(pl => pl.id === s.buzzedId);
-    if(p) p.score = (p.score || 0) + points;
+    const p = players.find(pl => pl.id === buzz.id);
+    if(p){
+      p.score = (p.score || 0) + points;
+      recordReaction(p, buzz, s);
+    }
     await savePlayers(players);
 
     s.status = 'reveal';
-    s.winnerId = s.buzzedId;
-    s.winnerName = s.buzzedName;
-    s.winnerAvatar = s.buzzedAvatar;
+    s.winnerId = buzz.id;
+    s.winnerName = buzz.name;
+    s.winnerAvatar = buzz.avatar;
     s.pointsAwarded = points;
-    s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
     await saveGameState(s);
     renderAdmin();
   }
 
   async function markWrong(){
     const s = await getGameState();
-    if(!s.buzzedId) return false;
+    const buzz = s.status === 'live' ? earliestBuzz(await fetchBuzzes(s.buzzEpoch), s.lockedOut) : null;
+    if(!buzz) return false;
+    const players = await getPlayers();
+    const p = players.find(pl => pl.id === buzz.id);
+    if(p){
+      recordReaction(p, buzz, s);
+      await savePlayers(players);
+    }
     s.lockedOut = s.lockedOut || [];
-    if(!s.lockedOut.includes(s.buzzedId)) s.lockedOut.push(s.buzzedId);
-    s.buzzedId = null; s.buzzedName = null; s.buzzedAvatar = null;
+    if(!s.lockedOut.includes(buzz.id)) s.lockedOut.push(buzz.id);
     s.status = 'live';
+    s.buzzEpoch = makeId('e'); // reopen the buzzers under a fresh epoch
     await saveGameState(s);
+    await stampBuzzersOpened();
     renderAdmin();
   }
 
@@ -1278,7 +1549,7 @@
   async function resetGame(){
     if(!confirm('Reset all scores and end the current round? Your round library stays intact.')) return false;
     const players = await getPlayers();
-    players.forEach(p => p.score = 0);
+    players.forEach(p => { p.score = 0; delete p.bestReaction; delete p.buzzes; });
     await savePlayers(players);
     await saveGameState(defaultState());
     renderAdmin();
@@ -1391,6 +1662,7 @@
         <button class="qb-btn qb-btn-small" data-action="copy-link" data-kind="display">Copy projector display link</button>
         <button class="qb-btn qb-btn-small" data-action="copy-link" data-kind="join">Copy join link (or use the QR on the display)</button>
         <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Projector: back to the game screen' : 'Projector: show score standings'}</button>
+        <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Projector: hide the podium' : '🏆 Show podium reveal'}</button>
         ${pageReachableByPhones() ? '' : `<p class="qb-small" style="color:#e0a03a;">These links point at this computer only, so other devices can't open them. Put the file online (e.g. GitHub Pages or Netlify) and host from that address.</p>`}
       </div>
     `;
@@ -1416,6 +1688,15 @@
       return;
     }
     const [state, players, rounds] = await Promise.all([getGameState(), getPlayers(), getRounds()]);
+    const liveBuzz = (state.status === 'live' && state.buzzEpoch)
+      ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
+
+    if(liveBuzz){
+      const key = (state.buzzEpoch || '') + ':' + liveBuzz.id;
+      if(!adminBuzzTimer || adminBuzzTimer.key !== key) adminBuzzTimer = { key, endsAt: Date.now() + ANSWER_SECONDS * 1000 };
+    } else {
+      adminBuzzTimer = null;
+    }
 
     let nowPlayingSection = '';
     if(state.roundId){
@@ -1423,21 +1704,23 @@
       const isLastStage = state.stageIndex >= state.stages.length - 1;
 
       let buzzedSection = '';
-      if(state.status === 'live' && state.buzzedId){
+      if(state.status === 'live' && liveBuzz){
+        const halfPts = currentStage ? Math.ceil(currentStage.points / 2) : 0;
         buzzedSection = `
           <div class="qb-buzzed-banner">
-            <div class="qb-small">Buzzed in</div>
-            <div class="who">${state.buzzedAvatar || ''} ${esc(state.buzzedName || '')}</div>
+            <div class="qb-small">Buzzed in &middot; <span id="qb-admin-countdown"></span></div>
+            <div class="who">${liveBuzz.avatar || ''} ${esc(liveBuzz.name || '')}</div>
             <div class="qb-row-2">
               <button class="qb-btn qb-btn-gold" data-action="mark-correct">Correct (+${currentStage ? currentStage.points : 0})</button>
-              <button class="qb-btn qb-btn-primary" data-action="mark-wrong">Wrong, they're out for this round</button>
+              <button class="qb-btn" data-action="mark-correct-half">Half right (+${halfPts})</button>
+              <button class="qb-btn qb-btn-primary" data-action="mark-wrong">Wrong</button>
             </div>
           </div>
         `;
       }
 
       let stageControls = '';
-      if(state.status === 'live' && !state.buzzedId){
+      if(state.status === 'live' && !liveBuzz){
         stageControls = `
           <div class="qb-row-2">
             ${!isLastStage ? `<button class="qb-btn" data-action="next-stage">No one got it, add next layer</button>` : ''}
@@ -1541,6 +1824,14 @@
 
     if(!adminPoll){
       adminPoll = setInterval(() => { if(view === 'admin' && !formOpen && !editingPlayerId) renderAdmin(); }, 1200);
+      adminTick = setInterval(() => {
+        if(view !== 'admin') return;
+        const el = document.getElementById('qb-admin-countdown');
+        if(el && adminBuzzTimer){
+          const remain = Math.ceil((adminBuzzTimer.endsAt - Date.now()) / 1000);
+          el.textContent = remain > 0 ? remain + 's to answer' : "time's up — your call";
+        }
+      }, 250);
     }
   }
 
@@ -1574,7 +1865,9 @@
         } else if(action === 'buzz'){
           buzzIn();
         } else if(action === 'mark-correct'){
-          withUndo('marking that answer correct', markCorrect);
+          withUndo('marking that answer correct', () => markCorrect(false));
+        } else if(action === 'mark-correct-half'){
+          withUndo('awarding half points', () => markCorrect(true));
         } else if(action === 'mark-wrong'){
           withUndo('marking that answer wrong', markWrong);
         } else if(action === 'next-stage'){
@@ -1604,6 +1897,8 @@
           unlockAdmin();
         } else if(action === 'toggle-standings'){
           toggleStandings();
+        } else if(action === 'toggle-podium'){
+          togglePodium();
         } else if(action === 'undo'){
           undoLast();
         } else if(action === 'toggle-sound'){
