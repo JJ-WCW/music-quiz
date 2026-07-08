@@ -317,6 +317,37 @@
   .qb-wager-in{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;color:var(--text-dim);}
   .qb-pot-line{color:var(--gold);font-size:22px;font-weight:700;margin-top:12px;}
   .qb-pot-pill{display:inline-block;background:var(--gold);color:#1b1f2e;font-weight:800;padding:8px 20px;border-radius:20px;font-size:20px;margin-bottom:14px;}
+  .qb-clue-box{background:var(--panel-light);border:2px dashed var(--gold);border-radius:16px;padding:20px 26px;font-size:24px;max-width:720px;margin:0 auto 22px;}
+
+  /* multiple-choice question rounds */
+  .qb-qtype-row{display:flex;gap:8px;margin-bottom:14px;}
+  .qb-answer-chip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:#fff;font-size:15px;flex-shrink:0;}
+  .qb-question-text{font-family:'Archivo Black',sans-serif;font-size:34px;margin-bottom:18px;}
+  .qb-qimage{max-width:min(440px,80vw);max-height:300px;border-radius:14px;margin:0 auto 18px;display:block;}
+  .qb-answer-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:900px;margin:0 auto 20px;}
+  .qb-answer-sq{
+    border-radius:14px;padding:24px 18px;font-size:23px;font-weight:800;color:#fff;
+    text-align:left;display:flex;gap:12px;align-items:center;border:none;
+    text-shadow:0 1px 3px rgba(0,0,0,0.35);
+  }
+  .qb-answer-sq .shape{font-size:24px;}
+  .qb-answer-grid.phone{gap:10px;margin-bottom:6px;}
+  .qb-answer-grid.phone .qb-answer-sq{padding:18px 12px;font-size:16px;cursor:pointer;}
+  .qb-answer-grid.phone .qb-answer-sq:active{transform:scale(0.97);}
+  .qb-answer-sq:disabled{opacity:0.45;cursor:not-allowed;}
+  .qb-answer-sq.chosen{opacity:1;outline:4px solid #fff;}
+  .qb-answer-sq.correct-reveal{outline:4px solid #fff;box-shadow:0 0 34px rgba(255,255,255,0.45);}
+  .qb-answer-sq.dimmed{opacity:0.25;}
+  .qb-answered-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:20px;color:var(--text-dim);}
+  .qb-qresults{max-width:640px;margin:0 auto 30px;}
+  .qb-qresult-row{
+    display:flex;align-items:center;gap:14px;background:var(--panel);
+    border-radius:12px;padding:12px 18px;margin-bottom:8px;font-size:20px;font-weight:600;text-align:left;
+  }
+  .qb-qresult-row.right{border:1px solid var(--good);}
+  .qb-qresult-row.wrong{border:1px solid var(--buzz);opacity:0.9;}
+  .qb-qresult-row .delta{color:var(--gold);font-family:'Archivo Black',sans-serif;}
+  .qb-qresult-row .t{margin-left:auto;font-family:'Archivo Black',sans-serif;color:var(--text-dim);font-size:16px;}
   .qb-back-link{align-self:flex-start;background:none;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;margin-bottom:16px;padding:0;}
   .qb-back-link:hover{color:var(--text);}
   .qb-small{font-size:13px;color:var(--text-dim);}
@@ -386,9 +417,15 @@
   let formSong = '';
   let formArtist = '';
   let formStages = [];       // [{label, points}]
-  let formWager = false;     // is this a wager round?
-  let formAnte = 2;          // points each player antes to play a wager round
-  let formHouseSeed = 0;     // points the house adds to the pot to start
+  let formType = 'song';     // 'song' (layered music round) | 'question' (multiple choice)
+  let formWager = false;     // song rounds: is this a wager round?
+  let formClue = '';         // wager rounds: the hint shown on the projector while betting
+  let formQuestion = '';     // question rounds
+  let formImage = '';
+  let formAnswers = ['', '', '', ''];
+  let formCorrect = 0;
+  let formQPoints = 3;
+  let formQBonus = 1;
 
   const AVATARS = ['🦊','🐸','🐧','🐢','🦁','🐨','🐯','🐵','🦄','🐙','🦖','🐝','🐮','🐼','🐔','🦉','🐳','🦅',
     '🦆','🦥','🦔','🐐','🦞','🦩','🦜','🐌','🦑','🦧','🐫','🦬','🥔','🥦','🧀','🌭','👽','🤖','🧙','🥸','🫠','🧌'];
@@ -406,9 +443,12 @@
       buzzEpoch:'', buzzersOpenedAt:0,
       showStandings:false, showPodium:false,
       lockedOut:[],
-      // wager round: players ante points into a pot before buzzers open; the
-      // winner takes the pot, an unclaimed pot rolls over to the next wager round
-      wagerActive:false, wagerPhase:'', anteEpoch:'', ante:0, houseSeed:0, pot:0, antes:{},
+      // wager round: a clue for the next song shows on the projector first and
+      // players may bet points on themselves; win the round to double your bet,
+      // otherwise it's gone. Betting is optional, everyone keeps their buzzer.
+      wagerActive:false, wagerPhase:'', anteEpoch:'', wagerClue:null, bets:{}, betWon:0, betsLost:0,
+      // multiple-choice question round
+      qMode:false, question:null, qImage:null, qAnswers:[], qCorrect:0, qPoints:0, qBonus:0, answerEpoch:'', qResults:[],
       winnerId:null, winnerName:null, winnerAvatar:null, pointsAwarded:null
     };
   }
@@ -489,7 +529,10 @@
   // minted whenever buzzers open), stamped with Firebase's *server* clock via the
   // {'.sv':'timestamp'} placeholder. Nobody ever overwrites anyone: every view
   // derives the winner as the entry with the earliest server timestamp.
-  const ANSWER_SECONDS = 15;
+  const ANSWER_SECONDS = 15;    // to answer after buzzing on a song round
+  const QUESTION_SECONDS = 15;  // to pick an answer on a multiple-choice question
+  const ANSWER_COLORS = ['#e63946', '#2e86de', '#f4b942', '#4cc38a'];
+  const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
   function buzzUrl(epoch, playerId){
     return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
       + '/qb-buzz-' + encodeURIComponent(epoch)
@@ -523,9 +566,9 @@
     }catch(e){}
   }
 
-  // ---------- wager antes ----------
-  // Like buzzing, each player writes only their own ante key, so simultaneous
-  // antes never clobber the pot. Scores aren't touched until the host closes
+  // ---------- wager bets ----------
+  // Like buzzing, each player writes only their own bet key, so simultaneous
+  // bets never clobber each other. Scores aren't touched until the host closes
   // betting (single writer), which avoids racing on the shared players array.
   function anteUrl(epoch, playerId){
     return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
@@ -543,14 +586,22 @@
   function sumAntes(antes){
     return Object.values(antes || {}).reduce((t, a) => t + (a && a.amount ? a.amount : 0), 0);
   }
-  // the unclaimed pot rolls to the next wager round; kept in its own key so
-  // loading a round (which resets game state) doesn't wipe it
-  async function getCarryPot(){
-    const t = await kvGet('qb-carrypot');
-    const n = t ? parseInt(t, 10) : 0;
-    return Number.isFinite(n) ? n : 0;
+  // ---------- multiple-choice answers ----------
+  // every player answers (no lockout), each writing only their own key with a
+  // server timestamp, so simultaneous answers never clash and times are exact
+  function answerUrl(epoch, playerId){
+    return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
+      + '/qb-answer-' + encodeURIComponent(epoch)
+      + (playerId ? '/' + encodeURIComponent(playerId) : '') + '.json';
   }
-  async function setCarryPot(n){ await kvSet('qb-carrypot', String(n || 0)); }
+  async function fetchAnswers(epoch){
+    if(!bucket || !epoch) return {};
+    try{
+      const res = await fetch(answerUrl(epoch), { cache:'no-store' });
+      if(!res.ok) return {};
+      return (await res.json()) || {};
+    }catch(e){ return {}; }
+  }
 
   // ---------- sound effects: synthesized with Web Audio, so no audio files needed ----------
   let audioCtx = null;
@@ -625,8 +676,14 @@
   function playFx(fn){
     if(!soundOn) return;
     const ctx = ensureAudio();
-    if(!ctx || ctx.state !== 'running') return;
-    try{ fn(); }catch(e){}
+    if(!ctx) return;
+    // on the very first tap the context is still resuming, so queue the sound
+    // for the moment it's ready instead of silently dropping it (iOS especially)
+    if(ctx.state === 'running'){
+      try{ fn(); }catch(e){}
+    } else if(ctx.resume){
+      ctx.resume().then(() => { try{ fn(); }catch(e){} }).catch(()=>{});
+    }
   }
   function playBuzzFor(x){
     const raw = x && Number.isInteger(x.sound) ? x.sound : soundIndexFor(x);
@@ -652,10 +709,7 @@
     });
   }
   function playSound(name){
-    if(!soundOn || !SOUNDS[name]) return;
-    const ctx = ensureAudio();
-    if(!ctx || ctx.state !== 'running') return;
-    try{ SOUNDS[name](); }catch(e){}
+    if(SOUNDS[name]) playFx(SOUNDS[name]);
   }
   function toggleSound(){
     const wasBlocked = soundOn && (!audioCtx || audioCtx.state !== 'running');
@@ -830,7 +884,7 @@
     const input = document.getElementById('qb-name-input');
     if(input){
       input.addEventListener('input', e => { joinDraftName = e.target.value; });
-      input.focus();
+      if(!useCache) input.focus();   // only steal focus on the first render
     }
   }
 
@@ -882,6 +936,7 @@
   // ---------- PLAYER ----------
   let playerPoll = null;
   let prevPlayerSound = null;
+  let playerSeq = 0;   // stale-render ticket, same idea as the display's
   async function renderPlayer(){
     if(!myPlayerId){
       const resumed = await resumeStoredPlayer();
@@ -893,7 +948,9 @@
         return renderJoin();
       }
     }
+    const seq = ++playerSeq;
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
+    if(seq !== playerSeq) return;
     const me = players.find(p => p.id === myPlayerId);
     if(!me && players.length){
       // the host removed this player, send them back to sign-up
@@ -926,13 +983,19 @@
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const inWagerRound = state.wagerActive && state.wagerPhase === 'playing';
-    let myAnte = null;
-    let livePot = state.pot || 0;
+    let myBet = null;
     if(betting){
-      const antes = await fetchAntes(state.anteEpoch);
-      myAnte = antes[myPlayerId] || null;
-      livePot = (state.pot || 0) + sumAntes(antes);   // base (seed + carry) plus everyone's antes
+      const bets = await fetchAntes(state.anteEpoch);
+      myBet = bets[myPlayerId] || null;
     }
+    const answering = state.qMode && state.status === 'live';
+    let myAnswer = null, answeredCount = 0;
+    if(answering){
+      const answers = await fetchAnswers(state.answerEpoch);
+      myAnswer = answers[myPlayerId] || null;
+      answeredCount = Object.values(answers).filter(a => a && a.id).length;
+    }
+    if(seq !== playerSeq) return;
 
     // phones only make sound for things that happened to *this* player;
     // the room-wide sounds come from the display
@@ -945,14 +1008,25 @@
     if(state.status === 'idle'){
       statusLine = 'Waiting for the host to load the next round';
       statusSub = '';
+    } else if(state.status === 'reveal' && state.qMode){
+      const mine = (state.qResults || []).find(r => r.id === myPlayerId);
+      statusLine = `The answer was ${esc((state.qAnswers || [])[state.qCorrect] || '')}`;
+      if(mine && mine.correct){
+        statusSub = `✅ You got it! +${mine.won} points${mine.fastest ? ' — fastest answer, bonus included 🥇' : ''}`;
+      } else if(mine && mine.answered){
+        statusSub = '❌ Not this time';
+      } else {
+        statusSub = "You didn't answer in time";
+      }
     } else if(state.status === 'reveal'){
       statusLine = `It was ${esc(state.songTitle || '')} by ${esc(state.artist || '')}`;
+      const iBet = (state.bets || {})[myPlayerId] || 0;
       if(state.winnerId === myPlayerId){
-        statusSub = `You got it! +${state.pointsAwarded} points`;
+        statusSub = `You got it! +${state.pointsAwarded} points${state.betWon ? ` and your bet doubled (+${state.betWon})` : ''}`;
       } else if(state.winnerId){
-        statusSub = `${state.winnerName || 'Someone'} got it first`;
+        statusSub = `${state.winnerName || 'Someone'} got it first${iBet ? ` — your ${iBet}-point bet is gone` : ''}`;
       } else {
-        statusSub = 'Nobody got it that time';
+        statusSub = `Nobody got it that time${iBet ? ` — your ${iBet}-point bet is gone` : ''}`;
       }
     } else if(state.status === 'live'){
       stagePill = currentStage ? `<div class="qb-stage-pill">${esc(currentStage.label)} &middot; ${currentStage.points} pt${currentStage.points===1?'':'s'}</div>` : '';
@@ -965,32 +1039,51 @@
       } else if(iAmLockedOut){
         statusLine = 'Wrong this time &mdash; your buzzer is locked';
         statusSub = "You get one guess per song, so you're out for the rest of this one. You'll be back in as soon as the next round starts.";
-      } else if(inWagerRound && !(state.antes && state.antes[myPlayerId] !== undefined)){
-        statusLine = 'You sat this wager round out';
-        statusSub = 'You kept your points &mdash; back in next round.';
       } else {
-        statusLine = inWagerRound ? `Buzz to win the ${state.pot}-point pot!` : 'Buzz in when you know it!';
+        const iStaked = inWagerRound ? ((state.bets || {})[myPlayerId] || 0) : 0;
+        statusLine = iStaked ? `Buzz to double your ${iStaked}-point bet!` : 'Buzz in when you know it!';
         statusSub = 'Only one guess per layer';
         buzzerDisabled = false;
       }
     }
 
-    // during the betting phase the buzzer is replaced by the ante controls
+    // betting and question rounds replace the buzzer with their own controls
     let centreHTML;
     if(betting){
-      const canAfford = myScore > 0;
       centreHTML = `
         <div class="qb-buzzer-wrap">
           <div class="qb-wager-badge">💰 WAGER ROUND</div>
-          <div class="qb-status-line">Pot so far: <span style="color:var(--gold);font-weight:800;">${livePot} pts</span></div>
-          ${myAnte ? `
-            <div class="qb-status-sub" style="font-size:16px;">You're in for ${myAnte.amount} pt${myAnte.amount===1?'':'s'}. Good luck!</div>
-            <button class="qb-btn qb-btn-ghost" data-action="cancel-ante">Actually, sit this one out</button>
+          ${state.wagerClue ? `<div class="qb-status-line" style="font-size:16px;">Clue: ${esc(state.wagerClue)}</div>` : ''}
+          ${myBet ? `
+            <div class="qb-status-sub" style="font-size:16px;">You've bet ${myBet.amount} pt${myBet.amount===1?'':'s'} on yourself. Win the round to double it!</div>
+            <button class="qb-btn qb-btn-ghost" data-action="cancel-bet">Withdraw my bet</button>
+          ` : myScore > 0 ? `
+            <div class="qb-status-sub" style="font-size:16px;">Reckon you know it from the clue? Bet points on yourself &mdash; win the round to double them, lose and they're gone.</div>
+            <input class="qb-input" id="qb-bet-amount" type="number" inputmode="numeric" min="1" max="${myScore}" placeholder="Points to bet (you have ${myScore})" style="text-align:center;" />
+            <button class="qb-btn qb-btn-gold" data-action="place-bet">Lock in my bet</button>
+            <div class="qb-status-sub">Betting is optional &mdash; you can buzz either way.</div>
           ` : `
-            <div class="qb-status-sub" style="font-size:16px;">Ante is ${state.ante} pts to play${!canAfford ? ' (you have 0 &mdash; you can still go all-in for free)' : (myScore < state.ante ? ` (you have ${myScore}, so you'd go all-in)` : '')}.</div>
-            <button class="qb-btn qb-btn-gold" data-action="place-ante">I'm in &mdash; ante up</button>
-            <div class="qb-status-sub">No ante, no buzzer this round.</div>
+            <div class="qb-status-sub" style="font-size:16px;">No points to bet yet &mdash; you can still buzz and win the round as normal.</div>
           `}
+        </div>
+      `;
+    } else if(answering){
+      centreHTML = `
+        <div class="qb-buzzer-wrap" style="gap:12px;">
+          <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${myAnswer ? `
+            <div class="qb-status-sub">Answer locked in &mdash; watch the screen! ${answeredCount} answered so far.</div>
+          ` : `
+            <div class="qb-status-sub">Tap the colour that matches the right answer on the screen &mdash; fast!</div>
+          `}
+          <div class="qb-answer-grid phone" style="width:100%;">
+            ${(state.qAnswers || []).map((a, i) => `
+              <button class="qb-answer-sq ${myAnswer && myAnswer.choice === i ? 'chosen' : ''}" style="background:${ANSWER_COLORS[i]};"
+                data-action="answer-choice" data-choice="${i}" ${myAnswer ? 'disabled' : ''}>
+                <span class="shape">${ANSWER_SHAPES[i]}</span> ${esc(a)}
+              </button>
+            `).join('')}
+          </div>
         </div>
       `;
     } else {
@@ -1032,8 +1125,6 @@
     const state = await getGameState();
     if(state.status !== 'live' || !state.buzzEpoch) return;
     if((state.lockedOut || []).includes(myPlayerId)) return;
-    // on a wager round only players who anted into the pot may buzz
-    if(state.wagerActive && !(state.antes && state.antes[myPlayerId] !== undefined)) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
     playBuzzFor(me || { id: myPlayerId });
@@ -1050,15 +1141,19 @@
     renderPlayer();
   }
 
-  // player antes into the pot (or declares they're in for all they have).
-  // Writes only their own key, like buzzing, so simultaneous antes don't clash.
-  async function placeAnte(){
+  // player bets points on themselves for the wager round.
+  // Writes only their own key, like buzzing, so simultaneous bets don't clash.
+  async function placeBet(){
     if(!myPlayerId) return;
+    const input = document.getElementById('qb-bet-amount');
+    const wanted = input ? parseInt(input.value, 10) : 0;
+    if(!Number.isFinite(wanted) || wanted <= 0){ alert('Enter how many points to bet.'); return; }
     const state = await getGameState();
     if(!state.wagerActive || state.wagerPhase !== 'betting' || !state.anteEpoch) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
-    const amount = Math.min(state.ante || 0, me ? (me.score || 0) : 0);
+    const amount = Math.min(wanted, me ? (me.score || 0) : 0);
+    if(amount <= 0){ alert("You don't have any points to bet — just play the round as normal."); return; }
     try{
       await fetch(anteUrl(state.anteEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
         id: myPlayerId, name: me ? me.name : myPlayerName, avatar: me ? me.avatar : '', amount
@@ -1067,7 +1162,7 @@
     playSound('join');
     renderPlayer();
   }
-  async function cancelAnte(){
+  async function cancelBet(){
     if(!myPlayerId) return;
     const state = await getGameState();
     if(!state.wagerActive || state.wagerPhase !== 'betting' || !state.anteEpoch) return;
@@ -1075,11 +1170,35 @@
     renderPlayer();
   }
 
+  // multiple-choice answer: one tap, locked in, timed by the server clock
+  async function answerQuestion(choice){
+    if(!myPlayerId) return;
+    const state = await getGameState();
+    if(!state.qMode || state.status !== 'live' || !state.answerEpoch) return;
+    const players = await getPlayers();
+    const me = players.find(p => p.id === myPlayerId);
+    try{
+      await fetch(answerUrl(state.answerEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
+        id: myPlayerId,
+        name: me ? me.name : myPlayerName,
+        avatar: me ? me.avatar : '',
+        choice,
+        ts: { '.sv':'timestamp' }
+      }) });
+    }catch(e){ console.error(e); }
+    playSound('join');
+    renderPlayer();
+  }
+
   // ---------- DISPLAY ----------
   let displayPoll = null;
   let displayTick = null;
   let displayBuzzTimer = null;
+  let displayQTimer = null;   // countdown for multiple-choice questions
   let prevDisplaySnap = null;
+  // renders await several fetches, so a slow one can finish after a newer one
+  // started; each render takes a ticket and abandons itself if it went stale
+  let displaySeq = 0;
 
   // big self-destructing result banner, appended to <body> so the 900ms
   // display re-render can't wipe it mid-animation
@@ -1160,26 +1279,41 @@
     }
     if(!displayPoll){
       displayPoll = setInterval(() => { if(view === 'display') renderDisplay(); }, 900);
-      // fine-grained ticker for the answer countdown and the TIME'S UP moment
+      // fine-grained ticker for the answer countdowns and the TIME'S UP moments
       displayTick = setInterval(() => {
-        if(view !== 'display' || !displayBuzzTimer) return;
-        const remain = Math.max(0, Math.ceil((displayBuzzTimer.endsAt - Date.now()) / 1000));
-        const el = document.getElementById('qb-countdown');
-        if(el) el.textContent = remain;
-        if(remain === 0 && !displayBuzzTimer.fired){
-          displayBuzzTimer.fired = true;
-          playSound('timesup');
-          showBanner('timesup', `⏰ TIME'S UP!<div style="font-size:26px;margin-top:10px;">Host's decision&hellip;</div>`);
+        if(view !== 'display') return;
+        if(displayBuzzTimer){
+          const remain = Math.max(0, Math.ceil((displayBuzzTimer.endsAt - Date.now()) / 1000));
+          const el = document.getElementById('qb-countdown');
+          if(el) el.textContent = remain;
+          if(remain === 0 && !displayBuzzTimer.fired){
+            displayBuzzTimer.fired = true;
+            playSound('timesup');
+            showBanner('timesup', `⏰ TIME'S UP!<div style="font-size:26px;margin-top:10px;">Host's decision&hellip;</div>`);
+          }
+        }
+        if(displayQTimer){
+          const remain = Math.max(0, Math.ceil((displayQTimer.endsAt - Date.now()) / 1000));
+          const el = document.getElementById('qb-qcountdown');
+          if(el) el.textContent = remain;
+          if(remain === 0 && !displayQTimer.fired){
+            displayQTimer.fired = true;
+            playSound('timesup');
+            renderDisplay();   // flip straight to the "checking answers" view
+          }
         }
       }, 200);
     }
+    const seq = ++displaySeq;
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
+    if(seq !== displaySeq) return;   // a newer render superseded this one
 
     // podium mode renders once and then leaves the DOM alone, so its staged
     // reveal animations and music aren't restarted by the poll
     if(state.showPodium){
       prevDisplaySnap = null;
       displayBuzzTimer = null;
+      displayQTimer = null;
       if(!document.getElementById('qb-podium')) renderPodium(players);
       return;
     }
@@ -1190,13 +1324,26 @@
     const showStandings = !!state.showStandings;
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const bettingAntes = betting ? await fetchAntes(state.anteEpoch) : {};
+    const answering = state.qMode && state.status === 'live';
+    const qAnswersLive = answering ? await fetchAnswers(state.answerEpoch) : {};
+    if(seq !== displaySeq) return;
+
+    if(answering){
+      if(!displayQTimer || displayQTimer.epoch !== state.answerEpoch){
+        displayQTimer = { epoch: state.answerEpoch, endsAt: Date.now() + QUESTION_SECONDS * 1000, fired: false };
+      }
+    } else {
+      displayQTimer = null;
+    }
 
     if(buzz){
       const key = (state.buzzEpoch || '') + ':' + buzz.id;
       if(!displayBuzzTimer || displayBuzzTimer.key !== key){
         displayBuzzTimer = { key, endsAt: Date.now() + ANSWER_SECONDS * 1000, fired: false };
       }
-    } else {
+    } else if(state.status !== 'live' || !displayBuzzTimer || displayBuzzTimer.key.indexOf((state.buzzEpoch || '') + ':') !== 0){
+      // only clear the timer when the round moved on (new epoch / reveal); a
+      // single failed buzz fetch must NOT reset the countdown back to 15
       displayBuzzTimer = null;
     }
 
@@ -1237,24 +1384,66 @@
       centre = standingsHTML(players);
     } else if(betting){
       const inList = Object.values(bettingAntes).filter(a => a && a.id);
-      // state.pot already holds house seed + any rolled-over carry; antes add on top
-      const livePot = (state.pot || 0) + sumAntes(bettingAntes);
       centre = `
         <div class="qb-wager-splash">
           <div class="qb-wager-title">💰 WAGER ROUND</div>
-          <div class="qb-pot">Pot: <span>${livePot}</span> pts</div>
-          <div class="qb-wager-in">${inList.length ? inList.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')}</span>`).join('') : 'Waiting for players to ante up&hellip;'}</div>
+          ${state.wagerClue ? `<div class="qb-clue-box">🕵️ Clue: <strong>${esc(state.wagerClue)}</strong></div>` : ''}
+          <div class="qb-wager-in">${inList.length ? inList.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} &middot; ${a.amount} pts</span>`).join('') : 'Place your bets on your phones&hellip;'}</div>
         </div>
         <div class="qb-rules">
           <h3>💰 Wager round rules</h3>
           <ol>
-            <li>Pay the <strong>${state.ante}-point ante</strong> on your phone to get in. Skint? You can go all-in for what you've got.</li>
-            <li><strong>No ante, no buzzer</strong> &mdash; if you don't pay in, you sit this one out.</li>
-            <li>Everyone's antes${state.houseSeed ? ' (plus the house seed)' : ''} build the <strong>pot</strong>.</li>
-            <li>Buzz in and answer as normal &mdash; artist <strong>and</strong> song.</li>
-            <li>Winner takes the <strong>whole pot</strong> on top of the layer points.</li>
-            <li>If nobody gets it, the pot <strong>rolls over</strong> to the next wager round.</li>
+            <li>Read the clue &mdash; it hints at the next song.</li>
+            <li>Confident? <strong>Bet any of your points on yourself</strong> on your phone, before the song starts.</li>
+            <li>The song then plays as a normal round &mdash; buzz, then name the artist <strong>and</strong> the song.</li>
+            <li>Win the round and <strong>your bet is doubled</strong>, on top of the layer points.</li>
+            <li>If someone else wins it &mdash; or nobody does &mdash; <strong>your bet is gone</strong>.</li>
+            <li>Betting is optional: everyone keeps their buzzer either way.</li>
           </ol>
+        </div>
+      `;
+    } else if(answering){
+      const answeredList = Object.values(qAnswersLive).filter(a => a && a.id);
+      const qTimeUp = displayQTimer && displayQTimer.fired;
+      const remainQ = displayQTimer ? Math.max(0, Math.ceil((displayQTimer.endsAt - Date.now()) / 1000)) : QUESTION_SECONDS;
+      centre = qTimeUp ? `
+        <div class="qb-idle-box">⏰ Time's up! Checking the answers&hellip;</div>
+      ` : `
+        <div class="qb-question-text">${esc(state.question || '')}</div>
+        ${state.qImage ? `<img class="qb-qimage" src="${esc(state.qImage)}" alt="clue" onerror="this.style.display='none'" />` : ''}
+        <div class="qb-countdown" id="qb-qcountdown" style="margin:0 0 18px;">${remainQ}</div>
+        <div class="qb-answer-grid">
+          ${(state.qAnswers || []).map((a, i) => `
+            <div class="qb-answer-sq" style="background:${ANSWER_COLORS[i]};"><span class="shape">${ANSWER_SHAPES[i]}</span> ${esc(a)}</div>
+          `).join('')}
+        </div>
+        <div class="qb-answered-row">${answeredList.length ? answeredList.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} ✔</span>`).join('') : 'Answers appear here as they come in&hellip;'}</div>
+      `;
+    } else if(state.status === 'reveal' && state.qMode){
+      const results = state.qResults || [];
+      const answered = results.filter(r => r.answered).sort((a, b) => (a.correct === b.correct) ? ((a.ms || 9e9) - (b.ms || 9e9)) : (a.correct ? -1 : 1));
+      const noAnswer = results.filter(r => !r.answered);
+      centre = `
+        <div class="qb-question-text" style="font-size:26px;">${esc(state.question || '')}</div>
+        <div class="qb-answer-grid" style="margin-bottom:22px;">
+          ${(state.qAnswers || []).map((a, i) => `
+            <div class="qb-answer-sq ${i === state.qCorrect ? 'correct-reveal' : 'dimmed'}" style="background:${ANSWER_COLORS[i]};"><span class="shape">${ANSWER_SHAPES[i]}</span> ${esc(a)}</div>
+          `).join('')}
+        </div>
+        <div class="qb-qresults">
+          ${answered.map(r => `
+            <div class="qb-qresult-row ${r.correct ? 'right' : 'wrong'}">
+              <span>${r.correct ? (r.fastest ? '🥇' : '✅') : '❌'}</span>
+              <span>${r.avatar || ''} ${esc(r.name || '')}</span>
+              ${r.correct ? `<span class="delta">+${r.won}${r.fastest ? ' fastest!' : ''}</span>` : ''}
+              <span class="t">${r.ms ? (r.ms / 1000).toFixed(2) + 's' : ''}</span>
+            </div>
+          `).join('')}
+          ${noAnswer.map(r => `
+            <div class="qb-qresult-row wrong" style="opacity:0.5;">
+              <span>💤</span><span>${r.avatar || ''} ${esc(r.name || '')}</span><span class="t">no answer</span>
+            </div>
+          `).join('')}
         </div>
       `;
     } else if(isLobby){
@@ -1278,7 +1467,8 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💰 Watch for <strong>wager rounds</strong> &mdash; ante your points into a pot and the winner takes the lot!</li>
+            <li>💰 Watch for <strong>wager rounds</strong> &mdash; you'll get a clue, then you can bet points on yourself. Win the round to double them!</li>
+            <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
           </ol>
         </div>
       `;
@@ -1287,8 +1477,8 @@
       if(state.winnerId){
         winnerLine = `${state.winnerAvatar || ''} ${esc(state.winnerName || '')} got it, +${state.pointsAwarded} points`;
       }
-      const potLine = state.potWon ? `<div class="qb-pot-line">💰 and scooped the ${state.potWon}-point pot!</div>`
-        : state.potRolled ? `<div class="qb-pot-line">💰 the ${state.potRolled}-point pot rolls over to the next wager round</div>` : '';
+      const potLine = state.betWon ? `<div class="qb-pot-line">💰 and doubled their bet: +${state.betWon} points!</div>`
+        : state.betsLost ? `<div class="qb-pot-line">💰 ${state.betsLost} point${state.betsLost===1?'':'s'} of bets lost to the void</div>` : '';
       centre = `
         <div class="qb-reveal-box">
           <div class="qb-small">The answer was</div>
@@ -1328,7 +1518,7 @@
         </div>
         <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
         <h1 class="qb-title">The Music Quiz</h1>
-        ${state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Playing for a ${state.pot}-point pot</div>` : ''}
+        ${state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
         ${stagePill}
         ${centre}
         ${!showStandings && state.status === 'live' && (state.lockedOut || []).length ? `<div class="qb-out-row">Out this round: ${(state.lockedOut || []).map(id => { const p = players.find(x => x.id === id); return p ? `<span class="qb-out-chip">❌ ${p.avatar} ${esc(p.name)}</span>` : ''; }).join('')}</div>` : ''}
@@ -1389,6 +1579,8 @@
 
   // ---------- ADMIN ----------
   let adminPoll = null;
+  let adminSeq = 0;   // stale-render ticket, same idea as the display's
+  let adminQTimer = null;   // question countdown; fires the automatic scoring
   let adminTick = null;
   let adminBuzzTimer = null;
 
@@ -1522,21 +1714,34 @@
     formSong = '';
     formArtist = '';
     formStages = [1,2,3,4,5].map(n => newStageRow(n, 6 - n));
+    formType = 'song';
     formWager = false;
-    formAnte = 2;
-    formHouseSeed = 0;
+    formClue = '';
+    formQuestion = '';
+    formImage = '';
+    formAnswers = ['', '', '', ''];
+    formCorrect = 0;
+    formQPoints = 3;
+    formQBonus = 1;
     renderAdmin();
   }
 
   function openEditForm(round){
     formOpen = round.id;
+    formType = round.type === 'question' ? 'question' : 'song';
     formLabel = round.label || '';
     formSong = round.songTitle || '';
     formArtist = round.artist || '';
-    formStages = round.stages.map(s => ({label:s.label, points:s.points}));
+    formStages = (round.stages || [newStageRow(1, 5)]).map(s => ({label:s.label, points:s.points}));
     formWager = !!round.isWager;
-    formAnte = round.ante || 2;
-    formHouseSeed = round.houseSeed || 0;
+    formClue = round.wagerClue || '';
+    formQuestion = round.question || '';
+    formImage = round.imageUrl || '';
+    formAnswers = (round.answers || ['', '', '', '']).slice(0, 4);
+    while(formAnswers.length < 4) formAnswers.push('');
+    formCorrect = round.correctIndex || 0;
+    formQPoints = round.points || 3;
+    formQBonus = Number.isInteger(round.bonus) ? round.bonus : 1;
     renderAdmin();
   }
 
@@ -1565,11 +1770,20 @@
     if(songEl) formSong = songEl.value;
     if(artistEl) formArtist = artistEl.value;
     const wagerEl = document.getElementById('qb-round-wager');
-    const anteEl = document.getElementById('qb-round-ante');
-    const seedEl = document.getElementById('qb-round-seed');
+    const clueEl = document.getElementById('qb-round-clue');
     if(wagerEl) formWager = wagerEl.checked;
-    if(anteEl) formAnte = Math.max(1, parseInt(anteEl.value, 10) || 1);
-    if(seedEl) formHouseSeed = Math.max(0, parseInt(seedEl.value, 10) || 0);
+    if(clueEl) formClue = clueEl.value;
+    const qEl = document.getElementById('qb-q-text');
+    const imgEl = document.getElementById('qb-q-image');
+    const qpEl = document.getElementById('qb-q-points');
+    const qbEl = document.getElementById('qb-q-bonus');
+    if(qEl) formQuestion = qEl.value;
+    if(imgEl) formImage = imgEl.value;
+    if(qpEl) formQPoints = Math.max(1, parseInt(qpEl.value, 10) || 1);
+    if(qbEl) formQBonus = Math.max(0, parseInt(qbEl.value, 10) || 0);
+    document.querySelectorAll('.qb-q-answer').forEach((inp, i) => { if(i < 4) formAnswers[i] = inp.value; });
+    const picked = document.querySelector('input[name="qb-q-correct"]:checked');
+    if(picked) formCorrect = parseInt(picked.value, 10) || 0;
     document.querySelectorAll('.qb-stage-row').forEach((rowEl, idx) => {
       const labelInput = rowEl.querySelector('.qb-label-input');
       const pointsInput = rowEl.querySelector('.qb-points-input');
@@ -1582,29 +1796,41 @@
 
   async function saveRoundForm(){
     readFormFromDOM();
-    const song = formSong.trim();
-    if(!song){ alert('Enter the song title first.'); return; }
-    if(formStages.some(s => !s.label.trim())){ alert('Give every layer a label, e.g. "Drums only".'); return; }
-
-    const rounds = await getRounds();
-    if(formOpen === 'add'){
-      rounds.push({
-        id: makeId('r'),
-        label: formLabel.trim() || `Round ${rounds.length + 1}`,
+    let data;
+    if(formType === 'question'){
+      const q = formQuestion.trim();
+      if(!q){ alert('Enter the question first.'); return; }
+      if(formAnswers.some(a => !a.trim())){ alert('Fill in all four answers.'); return; }
+      data = {
+        type: 'question',
+        question: q,
+        imageUrl: formImage.trim(),
+        answers: formAnswers.map(a => a.trim()),
+        correctIndex: formCorrect,
+        points: formQPoints,
+        bonus: formQBonus
+      };
+    } else {
+      const song = formSong.trim();
+      if(!song){ alert('Enter the song title first.'); return; }
+      if(formStages.some(s => !s.label.trim())){ alert('Give every layer a label, e.g. "Drums only".'); return; }
+      if(formWager && !formClue.trim()){ alert('Give the wager round a clue — that is what people bet on.'); return; }
+      data = {
+        type: 'song',
         songTitle: song,
         artist: formArtist.trim(),
         stages: formStages.map(s => ({label:s.label.trim(), points:s.points})),
-        isWager: formWager, ante: formAnte, houseSeed: formHouseSeed
-      });
+        isWager: formWager,
+        wagerClue: formClue.trim()
+      };
+    }
+
+    const rounds = await getRounds();
+    if(formOpen === 'add'){
+      rounds.push({ id: makeId('r'), label: formLabel.trim() || `Round ${rounds.length + 1}`, ...data });
     } else {
       const existing = rounds.find(r => r.id === formOpen);
-      if(existing){
-        existing.label = formLabel.trim() || existing.label;
-        existing.songTitle = song;
-        existing.artist = formArtist.trim();
-        existing.stages = formStages.map(s => ({label:s.label.trim(), points:s.points}));
-        existing.isWager = formWager; existing.ante = formAnte; existing.houseSeed = formHouseSeed;
-      }
+      if(existing) Object.assign(existing, { label: formLabel.trim() || existing.label }, data);
     }
     await saveRounds(rounds);
     formOpen = false;
@@ -1625,52 +1851,61 @@
     const s = defaultState();
     s.roundId = r.id;
     s.roundLabel = r.label;
-    s.songTitle = r.songTitle;
-    s.artist = r.artist;
-    s.stages = r.stages;
-    s.stageIndex = 0;
     s.roundNumber = rounds.indexOf(r) + 1;
     s.roundTotal = rounds.length;
-    if(r.isWager){
-      // betting phase first: buzzers stay shut until the host closes the kitty
-      const carry = await getCarryPot();
-      s.status = 'live';
-      s.wagerActive = true;
-      s.wagerPhase = 'betting';
-      s.ante = r.ante || 2;
-      s.houseSeed = r.houseSeed || 0;
-      s.pot = (r.houseSeed || 0) + carry;
-      s.anteEpoch = makeId('a');
-      s.buzzEpoch = '';   // no buzzing yet
+    s.status = 'live';
+    if(r.type === 'question'){
+      // multiple choice: everyone answers on their phone against the clock
+      s.qMode = true;
+      s.question = r.question;
+      s.qImage = r.imageUrl || null;
+      s.qAnswers = r.answers || [];
+      s.qCorrect = r.correctIndex || 0;
+      s.qPoints = r.points || 1;
+      s.qBonus = Number.isInteger(r.bonus) ? r.bonus : 0;
+      s.answerEpoch = makeId('q');
+      s.buzzEpoch = '';   // no buzzing on question rounds
     } else {
-      s.status = 'live';
-      s.buzzEpoch = makeId('e');
+      s.songTitle = r.songTitle;
+      s.artist = r.artist;
+      s.stages = r.stages;
+      s.stageIndex = 0;
+      if(r.isWager){
+        // betting phase first: the clue goes up and buzzers stay shut
+        s.wagerActive = true;
+        s.wagerPhase = 'betting';
+        s.wagerClue = r.wagerClue || '';
+        s.anteEpoch = makeId('a');
+        s.buzzEpoch = '';
+      } else {
+        s.buzzEpoch = makeId('e');
+      }
     }
     await saveGameState(s);
-    if(!r.isWager) await stampBuzzersOpened();
+    // question rounds stamp the clock so answer times are exact server-time maths
+    if(r.type === 'question' || !r.isWager) await stampBuzzersOpened();
     renderAdmin();
   }
 
-  // host closes the kitty: antes are deducted from scores now (single writer, no
-  // race), the pot is locked in, and buzzers open for the players who paid in
+  // host closes betting: bets are deducted from scores now (single writer, no
+  // race), locked into the state, and the song starts for everyone
   async function closeBetting(){
     const s = await getGameState();
     if(!s.wagerActive || s.wagerPhase !== 'betting') return false;
-    const antes = await fetchAntes(s.anteEpoch);
+    const bets = await fetchAntes(s.anteEpoch);
     const players = await getPlayers();
-    const anteMap = {};
-    Object.values(antes).forEach(a => {
-      if(!a || !a.id) return;
-      const p = players.find(pl => pl.id === a.id);
+    const betMap = {};
+    Object.values(bets).forEach(b => {
+      if(!b || !b.id) return;
+      const p = players.find(pl => pl.id === b.id);
       if(!p) return;
-      const paid = Math.min(a.amount || 0, p.score || 0); // all-in if short
-      p.score = (p.score || 0) - paid;
-      anteMap[a.id] = paid;
+      const staked = Math.max(0, Math.min(b.amount || 0, p.score || 0)); // capped at what they have
+      if(!staked) return;
+      p.score = (p.score || 0) - staked;
+      betMap[b.id] = staked;
     });
     await savePlayers(players);
-    s.antes = anteMap;
-    s.pot = (s.houseSeed || 0) + (await getCarryPot()) + Object.values(anteMap).reduce((t, n) => t + n, 0);
-    await setCarryPot(0);
+    s.bets = betMap;
     s.wagerPhase = 'playing';
     s.buzzEpoch = makeId('e');
     await saveGameState(s);
@@ -1697,8 +1932,11 @@
     if(s.status === 'reveal') return false;
     s.status = 'reveal';
     s.winnerId = null; s.winnerName = null; s.winnerAvatar = null; s.pointsAwarded = null;
-    // an unclaimed kitty rolls over to the next wager round
-    if(s.wagerActive && s.pot){ await setCarryPot(s.pot); s.potRolled = s.pot; s.wagerActive = false; s.pot = 0; }
+    // nobody won, so every bet stays lost (they were deducted at close-betting)
+    if(s.wagerActive){
+      s.betsLost = Object.values(s.bets || {}).reduce((t, n) => t + n, 0);
+      s.wagerActive = false;
+    }
     await saveGameState(s);
     renderAdmin();
   }
@@ -1719,11 +1957,13 @@
     const stage = s.stages[s.stageIndex];
     let points = stage ? stage.points : 0;
     if(half) points = Math.ceil(points / 2);
-    const potWon = s.wagerActive ? (s.pot || 0) : 0;   // wager winner scoops the kitty too
+    // wager winner gets their stake back doubled; everyone else's bets stay lost
+    const myStake = s.wagerActive ? ((s.bets || {})[buzz.id] || 0) : 0;
+    const betWon = myStake * 2;
     const players = await getPlayers();
     const p = players.find(pl => pl.id === buzz.id);
     if(p){
-      p.score = (p.score || 0) + points + potWon;
+      p.score = (p.score || 0) + points + betWon;
       recordReaction(p, buzz, s);
     }
     await savePlayers(players);
@@ -1733,8 +1973,48 @@
     s.winnerName = buzz.name;
     s.winnerAvatar = buzz.avatar;
     s.pointsAwarded = points;
-    s.potWon = potWon;
-    if(s.wagerActive){ s.wagerActive = false; s.pot = 0; }
+    s.betWon = betWon;
+    if(s.wagerActive){
+      s.betsLost = Object.entries(s.bets || {}).filter(([id]) => id !== buzz.id).reduce((t, [, n]) => t + n, 0);
+      s.wagerActive = false;
+    }
+    await saveGameState(s);
+    renderAdmin();
+  }
+
+  // ---------- question round scoring ----------
+  // runs once, on the host's tab only (single writer): collects the answers,
+  // scores everyone, hands the fastest-correct bonus out, and flips to reveal
+  async function scoreQuestion(acceptAll){
+    const s = await getGameState();
+    if(!s.qMode || s.status !== 'live') return false;
+    const raw = await fetchAnswers(s.answerEpoch);
+    const players = await getPlayers();
+    // answers are only valid inside the window, measured in pure server time
+    const cutoff = (s.buzzersOpenedAt || 0) + QUESTION_SECONDS * 1000 + 600; // small grace for network lag
+    const valid = {};
+    Object.values(raw).forEach(a => {
+      if(!a || !a.id || !Number.isInteger(a.choice)) return;
+      if(!acceptAll && s.buzzersOpenedAt && a.ts && a.ts > cutoff) return;
+      valid[a.id] = a;
+    });
+    const results = players.map(p => {
+      const a = valid[p.id];
+      if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
+      const ms = (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null;
+      return { id: p.id, name: p.name, avatar: p.avatar, answered: true, choice: a.choice, correct: a.choice === s.qCorrect, ms };
+    });
+    const rightOnes = results.filter(r => r.correct).sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
+    rightOnes.forEach((r, i) => {
+      let won = s.qPoints || 0;
+      if(i === 0 && rightOnes.length){ r.fastest = true; won += s.qBonus || 0; }
+      r.won = won;
+      const p = players.find(pl => pl.id === r.id);
+      if(p) p.score = (p.score || 0) + won;
+    });
+    await savePlayers(players);
+    s.qResults = results;
+    s.status = 'reveal';
     await saveGameState(s);
     renderAdmin();
   }
@@ -1769,7 +2049,6 @@
     const players = await getPlayers();
     players.forEach(p => { p.score = 0; delete p.bestReaction; delete p.buzzes; });
     await savePlayers(players);
-    await setCarryPot(0);
     await saveGameState(defaultState());
     renderAdmin();
   }
@@ -1779,8 +2058,37 @@
     return `
       <div class="qb-card" style="padding:20px;margin-bottom:16px;">
         <h3 style="margin-top:0;">${formOpen === 'add' ? 'Add a round' : 'Edit round'}</h3>
+        <div class="qb-qtype-row">
+          <button class="qb-btn qb-btn-small ${formType === 'song' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="song">🎵 Song round</button>
+          <button class="qb-btn qb-btn-small ${formType === 'question' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="question">❓ Quiz question</button>
+        </div>
         <label class="qb-label">Round label (optional)</label>
         <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
+        ${formType === 'question' ? `
+        <label class="qb-label">Question</label>
+        <input class="qb-input" id="qb-q-text" placeholder="e.g. Which of these was a Beatles B-side?" value="${esc(formQuestion)}" />
+        <label class="qb-label">Image link (optional clue &mdash; paste a picture URL)</label>
+        <input class="qb-input" id="qb-q-image" placeholder="https://…" value="${esc(formImage)}" />
+        <label class="qb-label">The four answers &mdash; tick the correct one</label>
+        ${formAnswers.map((a, i) => `
+          <div class="qb-stage-row">
+            <input type="radio" name="qb-q-correct" value="${i}" ${i === formCorrect ? 'checked' : ''} title="This is the correct answer" />
+            <span class="qb-answer-chip" style="background:${ANSWER_COLORS[i]};">${ANSWER_SHAPES[i]}</span>
+            <input class="qb-input qb-q-answer" placeholder="Answer ${'ABCD'[i]}" value="${esc(a)}" />
+          </div>
+        `).join('')}
+        <div class="qb-wager-fields">
+          <div>
+            <label class="qb-label">Points for a correct answer</label>
+            <input class="qb-input" id="qb-q-points" type="number" min="1" value="${formQPoints}" style="margin-bottom:0;" />
+          </div>
+          <div>
+            <label class="qb-label">Bonus for the fastest</label>
+            <input class="qb-input" id="qb-q-bonus" type="number" min="0" value="${formQBonus}" style="margin-bottom:0;" />
+          </div>
+        </div>
+        <p class="qb-small" style="margin:8px 0 16px;">Everyone answers on their phone within ${QUESTION_SECONDS} seconds &mdash; no buzzing, no lockout. Fastest correct answer earns the bonus.</p>
+        ` : `
         <label class="qb-label">Song title</label>
         <input class="qb-input" id="qb-round-song" placeholder="e.g. Don't Stop Me Now" value="${esc(formSong)}" />
         <label class="qb-label">Artist</label>
@@ -1796,21 +2104,14 @@
         <button class="qb-btn qb-btn-ghost qb-btn-small" style="margin-bottom:16px;" data-action="add-stage">+ Add another layer</button>
         <label class="qb-wager-toggle">
           <input type="checkbox" id="qb-round-wager" data-action="toggle-wager" ${formWager ? 'checked' : ''} />
-          <span>💰 Make this a <strong>wager round</strong> (players ante points into a pot; winner takes it)</span>
+          <span>💰 Make this a <strong>wager round</strong> (a clue shows first and players can bet points on themselves)</span>
         </label>
         ${formWager ? `
-          <div class="qb-wager-fields">
-            <div>
-              <label class="qb-label">Ante (points to play)</label>
-              <input class="qb-input" id="qb-round-ante" type="number" min="1" value="${formAnte}" style="margin-bottom:0;" />
-            </div>
-            <div>
-              <label class="qb-label">House seed (optional)</label>
-              <input class="qb-input" id="qb-round-seed" type="number" min="0" value="${formHouseSeed}" style="margin-bottom:0;" />
-            </div>
-          </div>
-          <p class="qb-small" style="margin:8px 0 16px;">Players who don't ante can't buzz this round. An unclaimed pot rolls over to your next wager round.</p>
+          <label class="qb-label">The clue shown while people bet</label>
+          <input class="qb-input" id="qb-round-clue" placeholder="e.g. A one-hit wonder from 1997 with a colour in the title" value="${esc(formClue)}" />
+          <p class="qb-small" style="margin:0 0 16px;">Win the round to double your bet; otherwise it's gone. Betting is optional &mdash; everyone keeps their buzzer either way.</p>
         ` : ''}
+        `}
         <div class="qb-row-2">
           <button class="qb-btn qb-btn-ghost" data-action="cancel-form">Cancel</button>
           <button class="qb-btn qb-btn-primary" data-action="save-round">Save round</button>
@@ -1923,35 +2224,69 @@
       bindActions();
       return;
     }
+    const seq = ++adminSeq;
     const [state, players, rounds] = await Promise.all([getGameState(), getPlayers(), getRounds()]);
     const liveBuzz = (state.status === 'live' && state.buzzEpoch)
       ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
+    if(seq !== adminSeq) return;   // a newer render superseded this one
 
     if(liveBuzz){
       const key = (state.buzzEpoch || '') + ':' + liveBuzz.id;
       if(!adminBuzzTimer || adminBuzzTimer.key !== key) adminBuzzTimer = { key, endsAt: Date.now() + ANSWER_SECONDS * 1000 };
-    } else {
-      adminBuzzTimer = null;
+    } else if(state.status !== 'live' || !adminBuzzTimer || adminBuzzTimer.key.indexOf((state.buzzEpoch || '') + ':') !== 0){
+      adminBuzzTimer = null;   // same transient-fetch protection as the display
     }
 
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const liveAntes = betting ? await fetchAntes(state.anteEpoch) : {};
+    const answering = state.qMode && state.status === 'live';
+    const liveAnswers = answering ? await fetchAnswers(state.answerEpoch) : {};
+    if(seq !== adminSeq) return;
+
+    // question countdown: the host's tab is the single writer, so it also does
+    // the automatic scoring the moment its own clock runs out (see adminTick)
+    if(answering){
+      if(!adminQTimer || adminQTimer.epoch !== state.answerEpoch){
+        adminQTimer = { epoch: state.answerEpoch, endsAt: Date.now() + QUESTION_SECONDS * 1000 + 800, fired: false };
+      }
+    } else {
+      adminQTimer = null;
+    }
 
     let nowPlayingSection = '';
-    if(state.roundId){
+    if(state.roundId && state.qMode){
+      const answeredList = Object.values(liveAnswers).filter(a => a && a.id);
+      nowPlayingSection = `
+        <div class="qb-admin-section">
+          <h3>Question round</h3>
+          <div class="qb-now-playing">
+            <div class="np-label">${esc(state.roundLabel || '')} &middot; ❓ multiple choice &middot; ${state.qPoints} pts, +${state.qBonus} fastest bonus</div>
+            <div class="np-song">${esc(state.question || '')}</div>
+            <div class="qb-small">Correct answer (only you can see this): <strong>${esc((state.qAnswers || [])[state.qCorrect] || '')}</strong></div>
+          </div>
+          ${state.status === 'live' ? `
+            <div class="qb-buzzed-banner">
+              <div class="qb-small">Answers lock in automatically when the ${QUESTION_SECONDS}s are up</div>
+              <div class="who">${answeredList.length} of ${players.length} answered</div>
+              <button class="qb-btn qb-btn-gold" data-action="end-question">Everyone's in &mdash; end it now</button>
+            </div>
+          ` : `<p class="qb-small">Scored &amp; revealed. Load the next round when you're ready.</p>`}
+        </div>
+      `;
+    }
+    if(state.roundId && !state.qMode){
       const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
       const isLastStage = state.stageIndex >= state.stages.length - 1;
 
       let bettingPanel = '';
       if(betting){
         const inList = Object.values(liveAntes).filter(a => a && a.id);
-        const livePot = (state.pot || 0) + sumAntes(liveAntes);
         bettingPanel = `
           <div class="qb-buzzed-banner">
-            <div class="qb-small">💰 WAGER ROUND &middot; betting open</div>
-            <div class="who">Pot: ${livePot} pts</div>
-            <div class="qb-small" style="margin-bottom:12px;">${inList.length} in so far${inList.length ? ': ' + inList.map(a => `${a.avatar || ''} ${esc(a.name || '')}`).join(', ') : ''}</div>
-            <button class="qb-btn qb-btn-gold" data-action="close-betting">Close the kitty &amp; open buzzers</button>
+            <div class="qb-small">💰 WAGER ROUND &middot; betting open &middot; clue is on the projector</div>
+            <div class="who">${sumAntes(liveAntes)} pts staked</div>
+            <div class="qb-small" style="margin-bottom:12px;">${inList.length ? inList.map(a => `${a.avatar || ''} ${esc(a.name || '')} (${a.amount})`).join(', ') : 'No bets yet'}</div>
+            <button class="qb-btn qb-btn-gold" data-action="close-betting">Close betting &amp; start the song</button>
           </div>
         `;
       }
@@ -1988,7 +2323,7 @@
         <div class="qb-admin-section">
           <h3>Now playing</h3>
           <div class="qb-now-playing">
-            <div class="np-label">${esc(state.roundLabel || '')} &middot; hidden from players until reveal${state.wagerActive ? ' &middot; 💰 wager, pot ' + (state.wagerPhase === 'playing' ? state.pot : ((state.pot||0) + sumAntes(liveAntes))) + ' pts' : ''}</div>
+            <div class="np-label">${esc(state.roundLabel || '')} &middot; hidden from players until reveal${state.wagerActive ? ' &middot; 💰 wager, ' + (state.wagerPhase === 'playing' ? Object.values(state.bets || {}).reduce((t, n) => t + n, 0) : sumAntes(liveAntes)) + ' pts staked' : ''}</div>
             <div class="np-song">${esc(state.songTitle || '')} &mdash; ${esc(state.artist || '')}</div>
             <div class="qb-small">${state.status === 'reveal' ? 'Revealed' : `Layer ${state.stageIndex + 1} of ${state.stages.length}: ${esc(currentStage ? currentStage.label : '')} (${currentStage ? currentStage.points : 0} pts)`}</div>
           </div>
@@ -2005,8 +2340,10 @@
         <div class="qb-round-row">
           <div class="rr-top">
             <div>
-              <div class="rr-title">${esc(r.label)} ${r.isWager ? '<span class="qb-wager-tag">💰 WAGER</span>' : ''}</div>
-              <div class="rr-meta">${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${r.stages.length} layers${r.isWager ? ` &middot; ante ${r.ante}${r.houseSeed ? ` +${r.houseSeed} seed` : ''}` : ''}</div>
+              <div class="rr-title">${esc(r.label)} ${r.type === 'question' ? '<span class="qb-wager-tag" style="background:#2e86de;color:#fff;">❓ QUESTION</span>' : r.isWager ? '<span class="qb-wager-tag">💰 WAGER</span>' : ''}</div>
+              <div class="rr-meta">${r.type === 'question'
+                ? `${esc(r.question || '')} &middot; ${r.points} pts +${r.bonus} fastest`
+                : `${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${(r.stages || []).length} layers${r.isWager ? ' &middot; clue: ' + esc(r.wagerClue || '') : ''}`}</div>
             </div>
           </div>
           <div class="rr-actions">
@@ -2087,6 +2424,11 @@
           const remain = Math.ceil((adminBuzzTimer.endsAt - Date.now()) / 1000);
           el.textContent = remain > 0 ? remain + 's to answer' : "time's up — your call";
         }
+        // question round: when this tab's clock runs out, score it exactly once
+        if(adminQTimer && !adminQTimer.fired && Date.now() >= adminQTimer.endsAt){
+          adminQTimer.fired = true;
+          scoreQuestion(false);
+        }
       }, 250);
     }
   }
@@ -2109,16 +2451,13 @@
           copyLink(el.getAttribute('data-kind'));
         } else if(action === 'pick-avatar'){
           joinDraftAvatar = el.getAttribute('data-avatar');
-          const nameEl = document.getElementById('qb-name-input');
-          if(nameEl) joinDraftName = nameEl.value;
-          renderJoin(true);
+          // update the selection in place: re-rendering here would refocus the
+          // name box and make the phone screen jump around
+          root.querySelectorAll('[data-action="pick-avatar"]').forEach(a => a.classList.toggle('selected', a === el));
         } else if(action === 'pick-buzzer'){
           joinDraftSound = parseInt(el.getAttribute('data-sound'), 10);
-          const nameEl = document.getElementById('qb-name-input');
-          if(nameEl) joinDraftName = nameEl.value;
-          ensureAudio();            // the tap also unlocks audio on iOS
-          playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer
-          renderJoin(true);
+          root.querySelectorAll('[data-action="pick-buzzer"]').forEach(b => b.classList.toggle('selected', b === el));
+          playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer (tap also unlocks audio)
         } else if(action === 'submit-join'){
           submitJoin();
         } else if(action === 'resume-player'){
@@ -2127,10 +2466,14 @@
           claimPlayer(el.getAttribute('data-id'));
         } else if(action === 'buzz'){
           buzzIn();
-        } else if(action === 'place-ante'){
-          placeAnte();
-        } else if(action === 'cancel-ante'){
-          cancelAnte();
+        } else if(action === 'place-bet'){
+          placeBet();
+        } else if(action === 'cancel-bet'){
+          cancelBet();
+        } else if(action === 'answer-choice'){
+          answerQuestion(parseInt(el.getAttribute('data-choice'), 10));
+        } else if(action === 'end-question'){
+          withUndo('ending the question early', () => scoreQuestion(true));
         } else if(action === 'close-betting'){
           withUndo('closing the betting', closeBetting);
         } else if(action === 'mark-correct'){
@@ -2185,6 +2528,10 @@
           withUndo('loading that round', () => loadRoundToPlay(el.getAttribute('data-id')));
         } else if(action === 'toggle-wager'){
           readFormFromDOM();   // the checkbox's own .checked is already the new value
+          renderAdmin();
+        } else if(action === 'pick-round-type'){
+          readFormFromDOM();
+          formType = el.getAttribute('data-type') === 'question' ? 'question' : 'song';
           renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();
