@@ -456,6 +456,7 @@
 
   function defaultState(){
     return {
+      quizTitle:null,       // host-set name for the night, shown on the projector
       status:'idle',        // idle | live | reveal
       roundId:null,
       roundLabel:null,
@@ -1024,7 +1025,15 @@
     // phones only make sound for things that happened to *this* player;
     // the room-wide sounds come from the display
     if(prevPlayerSound){
-      if(state.status === 'reveal' && prevPlayerSound.status !== 'reveal' && state.winnerId === myPlayerId) playSound('correct');
+      if(state.status === 'reveal' && prevPlayerSound.status !== 'reveal'){
+        if(state.winnerId === myPlayerId) playSound('correct');
+        // question rounds have no single winner, so react to my own result
+        if(state.qMode){
+          const mine = (state.qResults || []).find(r => r.id === myPlayerId);
+          if(mine && mine.correct) playSound('correct');
+          else if(mine && mine.answered) playSound('wrong');
+        }
+      }
       if(iAmLockedOut && !prevPlayerSound.lockedOut) playSound('wrong');
     }
     prevPlayerSound = { status: state.status, lockedOut: iAmLockedOut };
@@ -1140,7 +1149,12 @@
     bindActions();
 
     if(!playerPoll){
-      playerPoll = setInterval(() => { if(view === 'player') renderPlayer(); }, 800);
+      playerPoll = setInterval(() => {
+        // don't repaint while the player is typing their wager, or the poll
+        // would wipe the amount out of the box every 800ms
+        const typing = document.activeElement && document.activeElement.id === 'qb-bet-amount';
+        if(view === 'player' && !typing) renderPlayer();
+      }, 800);
     }
   }
 
@@ -1338,7 +1352,7 @@
       prevDisplaySnap = null;
       displayBuzzTimer = null;
       displayQTimer = null;
-      if(!document.getElementById('qb-podium')) renderPodium(players);
+      if(!document.getElementById('qb-podium')) renderPodium(players, state.quizTitle);
       return;
     }
 
@@ -1541,7 +1555,7 @@
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
         <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
-        <h1 class="qb-title">The Music Quiz</h1>
+        <h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>
         ${state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
         ${stagePill}
         ${centre}
@@ -1560,7 +1574,7 @@
   }
 
   // staged podium reveal: 3rd, then 2nd, then the winner, timed to the synth track
-  function renderPodium(players){
+  function renderPodium(players, quizTitle){
     const sorted = sortedPlayers(players);
     const rest = sorted.slice(3);
     const fastest = players.filter(p => p.bestReaction).sort((a, b) => a.bestReaction - b.bestReaction)[0];
@@ -1578,7 +1592,7 @@
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
         <div class="round-tag">The final results</div>
-        <h1 class="qb-title">The Music Quiz</h1>
+        <h1 class="qb-title">${esc(quizTitle || 'The Music Quiz')}</h1>
         <div class="qb-podium">
           ${slot(sorted[1], 'second', '2', 150)}
           ${slot(sorted[0], 'first', '1', 220)}
@@ -1692,6 +1706,18 @@
     if(!p) return;
     p.score = (p.score || 0) + delta;
     await savePlayers(players);
+    renderAdmin();
+  }
+
+  // host renaming of the quiz itself (shown on the projector and phones)
+  let editingTitle = false;
+  async function saveTitle(){
+    const el = document.getElementById('qb-quiz-title');
+    const t = el ? el.value.trim() : '';
+    const s = await getGameState();
+    s.quizTitle = t || null;   // empty falls back to "The Music Quiz"
+    await saveGameState(s);
+    editingTitle = false;
     renderAdmin();
   }
 
@@ -1873,6 +1899,7 @@
     const r = rounds.find(x => x.id === id);
     if(!r) return false;
     const s = defaultState();
+    s.quizTitle = (await getGameState()).quizTitle || null; // survives round loads
     s.roundId = r.id;
     s.roundLabel = r.label;
     s.roundNumber = rounds.indexOf(r) + 1;
@@ -2073,7 +2100,9 @@
     const players = await getPlayers();
     players.forEach(p => { p.score = 0; delete p.bestReaction; delete p.buzzes; });
     await savePlayers(players);
-    await saveGameState(defaultState());
+    const fresh = defaultState();
+    fresh.quizTitle = (await getGameState()).quizTitle || null; // a reset keeps the quiz name
+    await saveGameState(fresh);
     renderAdmin();
   }
 
@@ -2408,8 +2437,15 @@
       ${backLink('home','&larr; Back')}
       <div class="qb-admin-layout">
         <div class="qb-admin-header">
-          <h2 class="qb-title">Host admin</h2>
-          <span class="qb-small">Game code <span class="code">${esc(bucket)}</span> &middot; ${players.length} player${players.length===1?'':'s'} joined</span>
+          ${editingTitle ? `
+            <input class="qb-input" id="qb-quiz-title" maxlength="40" value="${esc(state.quizTitle || 'The Music Quiz')}" style="max-width:340px;margin:0;" />
+            <button class="qb-btn qb-btn-gold qb-btn-small" data-action="save-title">Save</button>
+            <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="cancel-title">Cancel</button>
+          ` : `
+            <h2 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h2>
+            <button class="qb-score-adj" data-action="edit-title" title="Rename the quiz (shows on the projector)">&#9998;</button>
+          `}
+          <span class="qb-small">host admin &middot; game code <span class="code">${esc(bucket)}</span> &middot; ${players.length} player${players.length===1?'':'s'} joined</span>
         </div>
 
         ${nowPlayingSection ? `<div class="qb-admin-card qb-full live">${nowPlayingSection}</div>` : ''}
@@ -2472,7 +2508,7 @@
     bindActions();
 
     if(!adminPoll){
-      adminPoll = setInterval(() => { if(view === 'admin' && !formOpen && !editingPlayerId) renderAdmin(); }, 1200);
+      adminPoll = setInterval(() => { if(view === 'admin' && !formOpen && !editingPlayerId && !editingTitle) renderAdmin(); }, 1200);
       adminTick = setInterval(() => {
         if(view !== 'admin') return;
         const el = document.getElementById('qb-admin-countdown');
@@ -2561,6 +2597,14 @@
           savePlayerEdit();
         } else if(action === 'cancel-edit-player'){
           closePlayerEditor();
+        } else if(action === 'edit-title'){
+          editingTitle = true;
+          renderAdmin();
+        } else if(action === 'save-title'){
+          saveTitle();
+        } else if(action === 'cancel-title'){
+          editingTitle = false;
+          renderAdmin();
         } else if(action === 'unlock-admin'){
           unlockAdmin();
         } else if(action === 'toggle-standings'){
