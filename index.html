@@ -282,6 +282,43 @@
   .qb-review-row .txt{flex:1;font-weight:600;}
   .qb-review-row .ms{color:var(--text-dim);font-size:13px;}
 
+  /* instruction strips on the projector */
+  .qb-tip{
+    background:rgba(244,185,66,0.08);border:1px dashed var(--gold);
+    border-radius:14px;padding:12px 22px;font-size:18px;max-width:760px;margin:0 auto 24px;
+  }
+
+  /* party look for the projector and phones; admin keeps the plain workbench look */
+  #qb-root[data-view="display"],#qb-root[data-view="player"],#qb-root[data-view="join"],#qb-root[data-view="home"]{
+    background:
+      radial-gradient(1100px 600px at 85% -10%, rgba(230,57,70,0.16), transparent 60%),
+      radial-gradient(900px 500px at -10% 25%, rgba(46,134,222,0.14), transparent 60%),
+      radial-gradient(900px 600px at 50% 115%, rgba(244,185,66,0.10), transparent 60%),
+      var(--bg);
+  }
+  #qb-root[data-view="display"] .qb-title,#qb-root[data-view="player"] .qb-title,
+  #qb-root[data-view="join"] .qb-title,#qb-root[data-view="home"] .qb-title{
+    background:linear-gradient(92deg, var(--gold) 0%, #ff5561 55%, #4cc38a 110%);
+    -webkit-background-clip:text;background-clip:text;
+    color:var(--gold);-webkit-text-fill-color:transparent;
+  }
+  .qb-buzzer:not(:disabled){animation:qb-armed 1.6s ease-in-out infinite;}
+  @keyframes qb-armed{
+    0%,100%{box-shadow:0 10px 0 var(--buzz-dark), 0 16px 30px rgba(230,57,70,0.4);}
+    50%{box-shadow:0 10px 0 var(--buzz-dark), 0 16px 64px rgba(230,57,70,0.85);}
+  }
+  #qb-root[data-view="display"] .qb-stage-pill,#qb-root[data-view="player"] .qb-stage-pill{
+    background:linear-gradient(90deg,var(--gold),#ffca5c);color:#1b1f2e;
+  }
+  #qb-root[data-view="display"] .qb-display-scoreboard .qb-score-row:nth-child(1){border:1px solid var(--gold);}
+  #qb-root[data-view="display"] .qb-display-scoreboard .qb-score-row:nth-child(2){border:1px solid #c0c8dd;}
+  #qb-root[data-view="display"] .qb-display-scoreboard .qb-score-row:nth-child(3){border:1px solid #d09a5b;}
+  #qb-root[data-view="player"] .qb-card,#qb-root[data-view="join"] .qb-card{
+    border:1px solid #2c3350;
+    box-shadow:0 8px 30px rgba(0,0,0,0.35), 0 0 60px rgba(46,134,222,0.10);
+  }
+  .qb-lobby-chip{border:1px solid #3a4160;}
+
   /* standings screen on the projector */
   .qb-standings{max-width:640px;margin:0 auto 34px;}
   .qb-standing-row{
@@ -491,8 +528,9 @@
       // question rounds: multiple choice (qAnswers set) or typed text (textMode)
       qMode:false, textMode:false, reviewing:false, question:null, qImage:null, qAnswers:[], qCorrect:0,
       textAnswer:null, qPoints:0, qBonus:0, qSeconds:0, answerEpoch:'', qResults:[], pendingAnswers:[],
-      // sudden death: fastest finger on the buzzer, question shown on the projector
-      suddenDeath:false,
+      // sudden death: fastest finger on the buzzer, question shown on the projector.
+      // sdEligible restricts the buzzers to the tied leaders when a tie exists
+      suddenDeath:false, sdEligible:[],
       winnerId:null, winnerName:null, winnerAvatar:null, pointsAwarded:null
     };
   }
@@ -812,6 +850,13 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
   function sortedPlayers(players){ return [...players].sort((a,b)=>b.score-a.score); }
+  // two or more players level at the top of the board; empty array otherwise
+  function tiedLeaders(players){
+    const sorted = sortedPlayers(players);
+    if(sorted.length < 2) return [];
+    const tied = sorted.filter(p => p.score === sorted[0].score);
+    return tied.length >= 2 ? tied : [];
+  }
 
   function scoreboardHTML(players, big){
     const sorted = sortedPlayers(players);
@@ -825,6 +870,7 @@
   }
 
   async function render(){
+    root.setAttribute('data-view', view);   // lets CSS give the party screens their own look
     if(view === 'home') return renderHome();
     if(view === 'join') return renderJoin();
     if(view === 'player') return renderPlayer();
@@ -1093,6 +1139,10 @@
       } else if(iAmLockedOut){
         statusLine = 'Wrong this time &mdash; your buzzer is locked';
         statusSub = "You get one guess per song, so you're out for the rest of this one. You'll be back in as soon as the next round starts.";
+      } else if(state.suddenDeath && (state.sdEligible || []).length && !(state.sdEligible || []).includes(myPlayerId)){
+        const names = (state.sdEligible || []).map(id => { const p = players.find(x => x.id === id); return p ? p.name : ''; }).filter(Boolean);
+        statusLine = '⚡ Sudden death &mdash; tied players only';
+        statusSub = `${esc(names.join(' and '))} are fighting for the lead. Your buzzer is back next round.`;
       } else if(state.suddenDeath){
         statusLine = '⚡ Fastest finger &mdash; buzz to answer!';
         statusSub = esc(state.question || '');
@@ -1206,6 +1256,8 @@
     const state = await getGameState();
     if(state.status !== 'live' || !state.buzzEpoch) return;
     if((state.lockedOut || []).includes(myPlayerId)) return;
+    // tie-break sudden death: only the tied leaders' buzzers work
+    if(state.suddenDeath && (state.sdEligible || []).length && !(state.sdEligible || []).includes(myPlayerId)) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
     playBuzzFor(me || { id: myPlayerId });
@@ -1322,17 +1374,24 @@
     document.body.appendChild(overlay);
     setTimeout(() => overlay.remove(), 3400);
   }
+  // small gold instruction strip used on the projector to explain what's happening
+  function tipHTML(text){
+    return `<div class="qb-tip">💡 ${text}</div>`;
+  }
   function standingsHTML(players){
     const sorted = sortedPlayers(players);
     if(!sorted.length) return `<div class="qb-idle-box">No players have joined yet</div>`;
     const medals = ['🥇','🥈','🥉'];
+    const tied = tiedLeaders(players);
+    const tiedIds = tied.map(p => p.id);
     return `<div class="qb-standings">` + sorted.map((p, i) => `
-      <div class="qb-standing-row ${i === 0 ? 'leader' : ''}">
-        <span class="rank">${medals[i] || (i + 1) + '.'}</span>
-        <span class="who">${p.avatar} ${esc(p.name)}</span>
+      <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''}">
+        <span class="rank">${tiedIds.includes(p.id) ? '🤝' : medals[i] || (i + 1) + '.'}</span>
+        <span class="who">${p.avatar} ${esc(p.name)} ${tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED FOR 1st</span>' : ''}</span>
         <span class="pts">${p.score}</span>
       </div>
-    `).join('') + `</div>`;
+    `).join('') + `</div>`
+    + (tied.length ? tipHTML(`It's level at the top &mdash; a <strong>⚡ sudden death</strong> round settles it. Only the tied players' buzzers will work.`) : '');
   }
 
   function joinedPlayersHTML(players){
@@ -1427,6 +1486,7 @@
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const isLobby = !state.roundId;
     const showStandings = !!state.showStandings;
+    const tiedAtTop = tiedLeaders(players);
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const bettingAntes = betting ? await fetchAntes(state.anteEpoch) : {};
     const answering = state.qMode && state.status === 'live';
@@ -1639,12 +1699,23 @@
         <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
         <h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>
         ${state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
-        ${state.suddenDeath && state.status === 'live' ? `<div class="qb-question-text">⚡ ${esc(state.question || '')}</div>` : ''}
+        ${state.suddenDeath && state.status === 'live' ? `
+          <div class="qb-question-text">⚡ ${esc(state.question || '')}</div>
+          ${(state.sdEligible || []).length
+            ? tipHTML(`Tie-breaker! Only <strong>${esc((state.sdEligible || []).map(id => { const p = players.find(x => x.id === id); return p ? p.name : ''; }).filter(Boolean).join(' and '))}</strong> can buzz &mdash; fastest correct answer takes the lead.`)
+            : tipHTML('Sudden death: fastest finger first, answer out loud, host decides.')}
+        ` : ''}
         ${stagePill}
         ${centre}
+        ${!showStandings && state.status === 'reveal' && tiedAtTop.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal))
+          ? tipHTML(`It's a <strong>tie</strong> between ${esc(tiedAtTop.map(p => p.name).join(' and '))}! A ⚡ sudden death round ${state.suddenDeath ? 'goes again' : 'is coming'} to settle it&hellip;`) : ''}
         ${!showStandings && !state.qMode && !betting && state.status === 'live' && players.length ? `
           <div class="qb-guess-row">
-            ${players.map(p => { const out = (state.lockedOut || []).includes(p.id); return `<span class="qb-guess-chip ${out ? 'out' : ''}">${p.avatar} ${esc(p.name)} &middot; ${out ? 'out' : '1 guess'}</span>`; }).join('')}
+            ${players.map(p => {
+              const sittingOut = state.suddenDeath && (state.sdEligible || []).length && !(state.sdEligible || []).includes(p.id);
+              const out = (state.lockedOut || []).includes(p.id) || sittingOut;
+              return `<span class="qb-guess-chip ${out ? 'out' : ''}">${p.avatar} ${esc(p.name)} &middot; ${sittingOut ? 'sitting out' : out ? 'out' : '1 guess'}</span>`;
+            }).join('')}
           </div>` : ''}
         ${showStandings ? '' : isLobby ? reachWarningHTML() : scoreboardHTML(players, true)}
         ${showStandings || (!isLobby && state.status !== 'live') ? joinStripHTML() : ''}
@@ -1780,6 +1851,12 @@
 
   async function togglePodium(){
     const s = await getGameState();
+    if(!s.showPodium){
+      // soft guard: a tied top spot deserves a sudden death first, not a coin-flip podium
+      const players = await getPlayers();
+      const tied = tiedLeaders(players);
+      if(tied.length && !confirm(`Top scores are level (${tied.map(p => p.name).join(', ')}). The podium will just pick one of them for 1st. Show it anyway?`)) return;
+    }
     s.showPodium = !s.showPodium;
     if(s.showPodium) s.showStandings = false;
     await saveGameState(s);
@@ -2046,7 +2123,9 @@
       s.answerEpoch = makeId('q');
       s.buzzEpoch = '';   // no buzzing on these rounds
     } else if(r.type === 'sudden'){
-      // fastest finger: the question shows on the projector, normal buzz rules
+      // fastest finger: the question shows on the projector, normal buzz rules —
+      // except when the top of the board is tied, in which case only the tied
+      // players' buzzers work (that's what sudden death is for)
       s.suddenDeath = true;
       s.question = r.question;
       s.songTitle = r.answer;   // the reveal box reads songTitle
@@ -2054,6 +2133,8 @@
       s.stages = [{ label: '⚡ Sudden death', points: r.points || 1 }];
       s.stageIndex = 0;
       s.buzzEpoch = makeId('e');
+      const playersNow = await getPlayers();
+      s.sdEligible = tiedLeaders(playersNow).map(p => p.id);
     } else {
       s.songTitle = r.songTitle;
       s.artist = r.artist;
@@ -2782,6 +2863,22 @@
           <span class="qb-small">host admin &middot; game code <span class="code">${esc(bucket)}</span> &middot; ${players.length} player${players.length===1?'':'s'} joined</span>
         </div>
 
+        ${(() => {
+          const tied = tiedLeaders(players);
+          // fires after the final round, and again if a sudden death itself ends unresolved
+          const tieMoment = state.status === 'reveal' && tied.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal));
+          if(!tieMoment) return '';
+          const suddens = rounds.filter(r => r.type === 'sudden' && !r.played);
+          return `<div class="qb-admin-card qb-full" style="border:1px solid var(--gold);">
+            <div class="qb-admin-section">
+              <h3>⚡ It's a tie for the lead!</h3>
+              <p class="qb-small" style="margin-top:0;">${esc(tied.map(p => p.name).join(', '))} are level at the top after the final round. Run a sudden death round before the podium &mdash; only their buzzers will work.</p>
+              ${suddens.length
+                ? suddens.map(r => `<button class="qb-btn qb-btn-gold qb-btn-small" data-action="load-round" data-id="${r.id}" style="margin-bottom:8px;">⚡ Run &ldquo;${esc(r.label)}&rdquo; now</button>`).join('')
+                : '<p class="qb-small">No unplayed sudden death rounds left &mdash; add one in the round library.</p>'}
+            </div>
+          </div>`;
+        })()}
         ${nowPlayingSection ? `<div class="qb-admin-card qb-full live">${nowPlayingSection}</div>` : ''}
 
         ${formOpen ? `<div class="qb-admin-card qb-full">${roundBuilderFormHTML()}</div>` : ''}
