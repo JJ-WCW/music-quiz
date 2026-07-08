@@ -503,6 +503,7 @@
   let formSDAnswer = '';     // sudden death: the answer only the host sees
   let formQPoints = 3;
   let formQBonus = 1;
+  let formQSeconds = 15;     // per-round answer time (QUESTION_SECONDS is declared further down)
 
   const AVATARS = ['🦊','🐸','🐧','🐢','🦁','🐨','🐯','🐵','🦄','🐙','🦖','🐝','🐮','🐼','🐔','🦉','🐳','🦅',
     '🦆','🦥','🦔','🐐','🦞','🦩','🦜','🐌','🦑','🦧','🐫','🦬','🥔','🥦','🧀','🌭','👽','🤖','🧙','🥸','🫠','🧌'];
@@ -1939,6 +1940,7 @@
     formSDAnswer = '';
     formQPoints = 3;
     formQBonus = 1;
+    formQSeconds = QUESTION_SECONDS;
     renderAdmin();
   }
 
@@ -1961,6 +1963,7 @@
     formSDAnswer = round.answer || '';
     formQPoints = round.points || 3;
     formQBonus = Number.isInteger(round.bonus) ? round.bonus : 1;
+    formQSeconds = round.seconds || (round.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS);
     renderAdmin();
   }
 
@@ -2004,6 +2007,8 @@
     if(imgEl) formImage = imgEl.value;
     if(qpEl) formQPoints = Math.max(1, parseInt(qpEl.value, 10) || 1);
     if(qbEl) formQBonus = Math.max(0, parseInt(qbEl.value, 10) || 0);
+    const qsEl = document.getElementById('qb-q-seconds');
+    if(qsEl) formQSeconds = Math.min(120, Math.max(5, parseInt(qsEl.value, 10) || QUESTION_SECONDS));
     if(taEl) formTextAnswer = taEl.value;
     if(sdEl) formSDAnswer = sdEl.value;
     document.querySelectorAll('.qb-q-answer').forEach((inp, i) => { if(i < 4) formAnswers[i] = inp.value; });
@@ -2033,7 +2038,8 @@
         answers: formAnswers.map(a => a.trim()),
         correctIndex: formCorrect,
         points: formQPoints,
-        bonus: formQBonus
+        bonus: formQBonus,
+        seconds: formQSeconds
       };
     } else if(formType === 'text'){
       const q = formQuestion.trim();
@@ -2045,7 +2051,8 @@
         imageUrl: formImage.trim(),
         textAnswer: formTextAnswer.trim(),
         points: formQPoints,
-        bonus: formQBonus
+        bonus: formQBonus,
+        seconds: formQSeconds
       };
     } else if(formType === 'sudden'){
       const q = formQuestion.trim();
@@ -2119,7 +2126,7 @@
       s.textAnswer = r.textAnswer || '';
       s.qPoints = r.points || 1;
       s.qBonus = Number.isInteger(r.bonus) ? r.bonus : 0;
-      s.qSeconds = r.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS;
+      s.qSeconds = r.seconds || (r.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS);
       s.answerEpoch = makeId('q');
       s.buzzEpoch = '';   // no buzzing on these rounds
     } else if(r.type === 'sudden'){
@@ -2442,8 +2449,12 @@
                 <label class="qb-label">Bonus for the fastest</label>
                 <input class="qb-input" id="qb-q-bonus" type="number" min="0" value="${formQBonus}" style="margin-bottom:0;" />
               </div>
+              <div>
+                <label class="qb-label">Seconds to type</label>
+                <input class="qb-input" id="qb-q-seconds" type="number" min="5" max="120" value="${formQSeconds}" style="margin-bottom:0;" />
+              </div>
             </div>
-            <p class="qb-small" style="margin:8px 0 16px;">Everyone types an answer within ${TEXT_SECONDS} seconds. Matching ignores capitals, spaces and punctuation &mdash; and you get a review screen to approve near-misses before any points are given.</p>
+            <p class="qb-small" style="margin:8px 0 16px;">Everyone types an answer within the time limit. Matching ignores capitals, spaces and punctuation &mdash; and you get a review screen to approve near-misses before any points are given.</p>
           </div>
         </div>
         ` : formType === 'sudden' ? `
@@ -2480,8 +2491,12 @@
                 <label class="qb-label">Bonus for the fastest</label>
                 <input class="qb-input" id="qb-q-bonus" type="number" min="0" value="${formQBonus}" style="margin-bottom:0;" />
               </div>
+              <div>
+                <label class="qb-label">Seconds to answer</label>
+                <input class="qb-input" id="qb-q-seconds" type="number" min="5" max="120" value="${formQSeconds}" style="margin-bottom:0;" />
+              </div>
             </div>
-            <p class="qb-small" style="margin:8px 0 16px;">Everyone answers on their phone within ${QUESTION_SECONDS} seconds &mdash; no buzzing, no lockout. Fastest correct answer earns the bonus.</p>
+            <p class="qb-small" style="margin:8px 0 16px;">Everyone answers on their phone within the time limit &mdash; no buzzing, no lockout. Fastest correct answer earns the bonus.</p>
           </div>
           <div>
             <label class="qb-label">The four answers &mdash; tick the correct one</label>
@@ -2823,8 +2838,8 @@
       return r.isWager ? '<span class="qb-wager-tag">💰 WAGER</span>' : '';
     };
     const roundMeta = r => {
-      if(r.type === 'question') return `${esc(r.question || '')} &middot; ${r.points} pts +${r.bonus} fastest`;
-      if(r.type === 'text') return `${esc(r.question || '')} &middot; "${esc(r.textAnswer || '')}" &middot; ${r.points} pts +${r.bonus} fastest`;
+      if(r.type === 'question') return `${esc(r.question || '')} &middot; ${r.points} pts +${r.bonus} fastest &middot; ${r.seconds || QUESTION_SECONDS}s`;
+      if(r.type === 'text') return `${esc(r.question || '')} &middot; "${esc(r.textAnswer || '')}" &middot; ${r.points} pts +${r.bonus} fastest &middot; ${r.seconds || TEXT_SECONDS}s`;
       if(r.type === 'sudden') return `${esc(r.question || '')} &middot; ${esc(r.answer || '')} &middot; ${r.points} pts`;
       return `${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${(r.stages || []).length} layers${r.isWager ? ' &middot; clue: ' + esc(r.wagerClue || '') : ''}`;
     };
@@ -3078,6 +3093,8 @@
           readFormFromDOM();
           const t = el.getAttribute('data-type');
           formType = ['question', 'text', 'sudden'].includes(t) ? t : 'song';
+          // sensible time prefill for the chosen type (typing needs longer); still editable
+          formQSeconds = formType === 'text' ? TEXT_SECONDS : QUESTION_SECONDS;
           renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();
