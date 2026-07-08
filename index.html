@@ -196,6 +196,30 @@
   /* Admin */
   .qb-admin-section{margin-bottom:26px;}
   .qb-admin-section h3{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);}
+
+  /* desktop admin dashboard: the host runs the night from a laptop, so use the width */
+  .qb-admin-layout{
+    width:100%;max-width:1400px;display:grid;gap:16px;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    align-items:start;
+  }
+  .qb-admin-header{grid-column:1/-1;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;}
+  .qb-admin-header .qb-title{margin:0;font-size:24px;}
+  .qb-admin-header .code{color:var(--gold);font-family:'Archivo Black',sans-serif;letter-spacing:1px;}
+  .qb-admin-card{
+    background:var(--panel);border-radius:18px;padding:20px 22px;
+    box-shadow:0 8px 30px rgba(0,0,0,0.35);min-width:0;
+  }
+  .qb-admin-card .qb-admin-section{margin-bottom:0;}
+  .qb-admin-card .qb-admin-section + .qb-admin-section{margin-top:22px;}
+  .qb-admin-card.qb-full{grid-column:1/-1;}
+  .qb-admin-card.live{border:1px solid #3a4160;}
+  .qb-form-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start;}
+  @media(max-width:1100px){.qb-admin-layout{grid-template-columns:repeat(2, minmax(0,1fr));}}
+  @media(max-width:740px){
+    .qb-admin-layout{grid-template-columns:1fr;}
+    .qb-form-cols{grid-template-columns:1fr;}
+  }
   .qb-buzzed-banner{
     background:var(--panel-light);
     border-radius:12px;
@@ -357,8 +381,8 @@
   .qb-round-row .rr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
   .qb-round-row .rr-title{font-weight:700;}
   .qb-round-row .rr-meta{color:var(--text-dim);font-size:13px;margin-top:2px;}
-  .qb-round-row .rr-actions{display:flex;gap:8px;margin-top:10px;}
-  .qb-round-row .rr-actions .qb-btn{margin:0;}
+  .qb-round-row .rr-actions{display:flex;gap:8px;margin-top:10px;align-items:center;}
+  .qb-round-row .rr-actions .qb-btn{margin:0;width:auto;white-space:nowrap;}
   .qb-stage-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
   .qb-stage-row input.qb-label-input{flex:3;}
   .qb-stage-row input.qb-points-input{flex:1;}
@@ -2056,63 +2080,77 @@
   function roundBuilderFormHTML(){
     if(!formOpen) return '';
     return `
-      <div class="qb-card" style="padding:20px;margin-bottom:16px;">
-        <h3 style="margin-top:0;">${formOpen === 'add' ? 'Add a round' : 'Edit round'}</h3>
+      <div class="qb-admin-section">
+        <h3>${formOpen === 'add' ? '🛠 Add a round' : '🛠 Edit round'}</h3>
         <div class="qb-qtype-row">
           <button class="qb-btn qb-btn-small ${formType === 'song' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="song">🎵 Song round</button>
           <button class="qb-btn qb-btn-small ${formType === 'question' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="question">❓ Quiz question</button>
         </div>
-        <label class="qb-label">Round label (optional)</label>
-        <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
         ${formType === 'question' ? `
-        <label class="qb-label">Question</label>
-        <input class="qb-input" id="qb-q-text" placeholder="e.g. Which of these was a Beatles B-side?" value="${esc(formQuestion)}" />
-        <label class="qb-label">Image link (optional clue &mdash; paste a picture URL)</label>
-        <input class="qb-input" id="qb-q-image" placeholder="https://…" value="${esc(formImage)}" />
-        <label class="qb-label">The four answers &mdash; tick the correct one</label>
-        ${formAnswers.map((a, i) => `
-          <div class="qb-stage-row">
-            <input type="radio" name="qb-q-correct" value="${i}" ${i === formCorrect ? 'checked' : ''} title="This is the correct answer" />
-            <span class="qb-answer-chip" style="background:${ANSWER_COLORS[i]};">${ANSWER_SHAPES[i]}</span>
-            <input class="qb-input qb-q-answer" placeholder="Answer ${'ABCD'[i]}" value="${esc(a)}" />
-          </div>
-        `).join('')}
-        <div class="qb-wager-fields">
+        <div class="qb-form-cols">
           <div>
-            <label class="qb-label">Points for a correct answer</label>
-            <input class="qb-input" id="qb-q-points" type="number" min="1" value="${formQPoints}" style="margin-bottom:0;" />
+            <label class="qb-label">Round label (optional)</label>
+            <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
+            <label class="qb-label">Question</label>
+            <input class="qb-input" id="qb-q-text" placeholder="e.g. Which of these was a Beatles B-side?" value="${esc(formQuestion)}" />
+            <label class="qb-label">Image link (optional clue &mdash; paste a picture URL)</label>
+            <input class="qb-input" id="qb-q-image" placeholder="https://…" value="${esc(formImage)}" />
+            <div class="qb-wager-fields">
+              <div>
+                <label class="qb-label">Points for a correct answer</label>
+                <input class="qb-input" id="qb-q-points" type="number" min="1" value="${formQPoints}" style="margin-bottom:0;" />
+              </div>
+              <div>
+                <label class="qb-label">Bonus for the fastest</label>
+                <input class="qb-input" id="qb-q-bonus" type="number" min="0" value="${formQBonus}" style="margin-bottom:0;" />
+              </div>
+            </div>
+            <p class="qb-small" style="margin:8px 0 16px;">Everyone answers on their phone within ${QUESTION_SECONDS} seconds &mdash; no buzzing, no lockout. Fastest correct answer earns the bonus.</p>
           </div>
           <div>
-            <label class="qb-label">Bonus for the fastest</label>
-            <input class="qb-input" id="qb-q-bonus" type="number" min="0" value="${formQBonus}" style="margin-bottom:0;" />
+            <label class="qb-label">The four answers &mdash; tick the correct one</label>
+            ${formAnswers.map((a, i) => `
+              <div class="qb-stage-row">
+                <input type="radio" name="qb-q-correct" value="${i}" ${i === formCorrect ? 'checked' : ''} title="This is the correct answer" />
+                <span class="qb-answer-chip" style="background:${ANSWER_COLORS[i]};">${ANSWER_SHAPES[i]}</span>
+                <input class="qb-input qb-q-answer" placeholder="Answer ${'ABCD'[i]}" value="${esc(a)}" />
+              </div>
+            `).join('')}
           </div>
         </div>
-        <p class="qb-small" style="margin:8px 0 16px;">Everyone answers on their phone within ${QUESTION_SECONDS} seconds &mdash; no buzzing, no lockout. Fastest correct answer earns the bonus.</p>
         ` : `
-        <label class="qb-label">Song title</label>
-        <input class="qb-input" id="qb-round-song" placeholder="e.g. Don't Stop Me Now" value="${esc(formSong)}" />
-        <label class="qb-label">Artist</label>
-        <input class="qb-input" id="qb-round-artist" placeholder="e.g. Queen" value="${esc(formArtist)}" />
-        <label class="qb-label">Layers, from hardest to easiest</label>
-        ${formStages.map((s,i) => `
-          <div class="qb-stage-row">
-            <input class="qb-input qb-label-input" placeholder="e.g. Drums only" value="${esc(s.label)}" />
-            <input class="qb-input qb-points-input" type="number" min="0" value="${s.points}" />
-            <button class="qb-remove-x" data-action="remove-stage" data-idx="${i}">&times;</button>
+        <div class="qb-form-cols">
+          <div>
+            <label class="qb-label">Round label (optional)</label>
+            <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
+            <label class="qb-label">Song title</label>
+            <input class="qb-input" id="qb-round-song" placeholder="e.g. Don't Stop Me Now" value="${esc(formSong)}" />
+            <label class="qb-label">Artist</label>
+            <input class="qb-input" id="qb-round-artist" placeholder="e.g. Queen" value="${esc(formArtist)}" />
+            <label class="qb-wager-toggle">
+              <input type="checkbox" id="qb-round-wager" data-action="toggle-wager" ${formWager ? 'checked' : ''} />
+              <span>💰 Make this a <strong>wager round</strong> (a clue shows first and players can bet points on themselves)</span>
+            </label>
+            ${formWager ? `
+              <label class="qb-label">The clue shown while people bet</label>
+              <input class="qb-input" id="qb-round-clue" placeholder="e.g. A one-hit wonder from 1997 with a colour in the title" value="${esc(formClue)}" />
+              <p class="qb-small" style="margin:0 0 16px;">Win the round to double your bet; otherwise it's gone. Betting is optional &mdash; everyone keeps their buzzer either way.</p>
+            ` : ''}
           </div>
-        `).join('')}
-        <button class="qb-btn qb-btn-ghost qb-btn-small" style="margin-bottom:16px;" data-action="add-stage">+ Add another layer</button>
-        <label class="qb-wager-toggle">
-          <input type="checkbox" id="qb-round-wager" data-action="toggle-wager" ${formWager ? 'checked' : ''} />
-          <span>💰 Make this a <strong>wager round</strong> (a clue shows first and players can bet points on themselves)</span>
-        </label>
-        ${formWager ? `
-          <label class="qb-label">The clue shown while people bet</label>
-          <input class="qb-input" id="qb-round-clue" placeholder="e.g. A one-hit wonder from 1997 with a colour in the title" value="${esc(formClue)}" />
-          <p class="qb-small" style="margin:0 0 16px;">Win the round to double your bet; otherwise it's gone. Betting is optional &mdash; everyone keeps their buzzer either way.</p>
-        ` : ''}
+          <div>
+            <label class="qb-label">Layers, from hardest to easiest</label>
+            ${formStages.map((s,i) => `
+              <div class="qb-stage-row">
+                <input class="qb-input qb-label-input" placeholder="e.g. Drums only" value="${esc(s.label)}" />
+                <input class="qb-input qb-points-input" type="number" min="0" value="${s.points}" />
+                <button class="qb-remove-x" data-action="remove-stage" data-idx="${i}">&times;</button>
+              </div>
+            `).join('')}
+            <button class="qb-btn qb-btn-ghost qb-btn-small" style="margin-bottom:16px;" data-action="add-stage">+ Add another layer</button>
+          </div>
+        </div>
         `}
-        <div class="qb-row-2">
+        <div class="qb-row-2" style="max-width:440px;">
           <button class="qb-btn qb-btn-ghost" data-action="cancel-form">Cancel</button>
           <button class="qb-btn qb-btn-primary" data-action="save-round">Save round</button>
         </div>
@@ -2188,19 +2226,31 @@
     `;
   }
 
-  function sessionInfoHTML(state){
+  function projectorCardHTML(state){
     return `
       <div class="qb-admin-section">
-        <h3>Session</h3>
+        <h3>🖥️ Projector controls</h3>
+        <p class="qb-small" style="margin-top:0;">The projector follows the game on its own; these switch it to the special screens.</p>
+        <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Back to the game screen' : '📊 Show score standings'}</button>
+        <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Hide the podium' : '🏆 Show podium reveal'}</button>
+      </div>
+    `;
+  }
+  function sessionCardHTML(){
+    return `
+      <div class="qb-admin-section">
+        <h3>🔗 Session</h3>
         <div class="qb-now-playing">
           <div class="np-label">Game code</div>
           <div class="np-song">${esc(bucket)}</div>
         </div>
         <button class="qb-btn qb-btn-small" data-action="copy-link" data-kind="display">Copy projector display link</button>
         <button class="qb-btn qb-btn-small" data-action="copy-link" data-kind="join">Copy join link (or use the QR on the display)</button>
-        <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Projector: back to the game screen' : 'Projector: show score standings'}</button>
-        <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Projector: hide the podium' : '🏆 Show podium reveal'}</button>
         ${pageReachableByPhones() ? '' : `<p class="qb-small" style="color:#e0a03a;">These links point at this computer only, so other devices can't open them. Put the file online (e.g. GitHub Pages or Netlify) and host from that address.</p>`}
+      </div>
+      <div class="qb-admin-section">
+        <h3>Reset</h3>
+        <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="reset-game">Reset scores &amp; end current round</button>
       </div>
     `;
   }
@@ -2356,60 +2406,66 @@
 
     root.innerHTML = `
       ${backLink('home','&larr; Back')}
-      <div class="qb-card">
-        <h2 class="qb-title" style="font-size:22px;margin-top:0;">Host admin</h2>
-        <p class="qb-small">${players.length} player${players.length===1?'':'s'} joined</p>
-
-        ${sessionInfoHTML(state)}
-
-        ${nowPlayingSection}
-
-        ${undoStack.length ? `
-        <div class="qb-admin-section">
-          <h3>Fix a mistake</h3>
-          <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="undo" title="Puts scores and the round back to how they were just before that action">&#8630; Undo ${esc(undoStack[undoStack.length-1].label)}</button>
-        </div>` : ''}
-
-        <div class="qb-admin-section">
-          <h3>Round library</h3>
-          ${roundsListHTML}
-          <button class="qb-btn qb-btn-ghost" data-action="add-round" style="margin-top:6px;">+ Add a round</button>
+      <div class="qb-admin-layout">
+        <div class="qb-admin-header">
+          <h2 class="qb-title">Host admin</h2>
+          <span class="qb-small">Game code <span class="code">${esc(bucket)}</span> &middot; ${players.length} player${players.length===1?'':'s'} joined</span>
         </div>
 
-        ${roundBuilderFormHTML()}
+        ${nowPlayingSection ? `<div class="qb-admin-card qb-full live">${nowPlayingSection}</div>` : ''}
 
-        <div class="qb-admin-section">
-          <h3>Players (${players.length})</h3>
-          ${players.length === 0 ? '<p class="qb-small">Nobody has joined yet. Send them to the sign up page.</p>' : ''}
-          ${sortedPlayers(players).map(p => p.id === editingPlayerId ? `
-            <div class="qb-player-admin-row" style="flex-direction:column;align-items:stretch;gap:10px;">
-              <label class="qb-label" style="margin-bottom:0;">Display name</label>
-              <input class="qb-input" id="qb-edit-name" maxlength="20" value="${esc(editName)}" style="margin-bottom:0;" />
-              <div class="qb-avatar-grid">
-                ${AVATARS.map(a => `<div class="qb-avatar ${a===editAvatar?'selected':''}" data-action="edit-pick-avatar" data-avatar="${a}">${a}</div>`).join('')}
-              </div>
-              <div class="qb-row-2">
-                <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="cancel-edit-player">Cancel</button>
-                <button class="qb-btn qb-btn-gold qb-btn-small" data-action="save-edit-player">Save</button>
-              </div>
-            </div>
-          ` : `
-            <div class="qb-player-admin-row">
-              <span>${p.avatar} ${esc(p.name)}</span>
-              <span style="display:flex;align-items:center;gap:8px;">
-                <button class="qb-score-adj" data-action="edit-player" data-id="${p.id}" title="Edit name and picture">&#9998;</button>
-                <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
-                <span class="pts" style="color:var(--gold);min-width:48px;text-align:center;">${p.score} pts</span>
-                <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="1" title="Add a point">+</button>
-                <button class="qb-remove-x" data-action="remove-player" data-id="${p.id}" title="Remove this player">&times;</button>
-              </span>
-            </div>
-          `).join('')}
+        ${formOpen ? `<div class="qb-admin-card qb-full">${roundBuilderFormHTML()}</div>` : ''}
+
+        <div class="qb-admin-card">
+          ${projectorCardHTML(state)}
+          ${undoStack.length ? `
+          <div class="qb-admin-section">
+            <h3>Fix a mistake</h3>
+            <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="undo" title="Puts scores and the round back to how they were just before that action">&#8630; Undo ${esc(undoStack[undoStack.length-1].label)}</button>
+          </div>` : ''}
         </div>
 
-        <div class="qb-admin-section">
-          <h3>Reset</h3>
-          <button class="qb-btn qb-btn-ghost" data-action="reset-game">Reset scores &amp; end current round</button>
+        <div class="qb-admin-card">
+          <div class="qb-admin-section">
+            <h3>📚 Round library</h3>
+            ${roundsListHTML}
+            <button class="qb-btn qb-btn-ghost" data-action="add-round" style="margin-top:6px;">+ Add a round</button>
+          </div>
+        </div>
+
+        <div class="qb-admin-card">
+          <div class="qb-admin-section">
+            <h3>👥 Players (${players.length})</h3>
+            ${players.length === 0 ? '<p class="qb-small">Nobody has joined yet. Send them to the sign up page.</p>' : ''}
+            ${sortedPlayers(players).map(p => p.id === editingPlayerId ? `
+              <div class="qb-player-admin-row" style="flex-direction:column;align-items:stretch;gap:10px;">
+                <label class="qb-label" style="margin-bottom:0;">Display name</label>
+                <input class="qb-input" id="qb-edit-name" maxlength="20" value="${esc(editName)}" style="margin-bottom:0;" />
+                <div class="qb-avatar-grid">
+                  ${AVATARS.map(a => `<div class="qb-avatar ${a===editAvatar?'selected':''}" data-action="edit-pick-avatar" data-avatar="${a}">${a}</div>`).join('')}
+                </div>
+                <div class="qb-row-2">
+                  <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="cancel-edit-player">Cancel</button>
+                  <button class="qb-btn qb-btn-gold qb-btn-small" data-action="save-edit-player">Save</button>
+                </div>
+              </div>
+            ` : `
+              <div class="qb-player-admin-row">
+                <span>${p.avatar} ${esc(p.name)}</span>
+                <span style="display:flex;align-items:center;gap:8px;">
+                  <button class="qb-score-adj" data-action="edit-player" data-id="${p.id}" title="Edit name and picture">&#9998;</button>
+                  <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
+                  <span class="pts" style="color:var(--gold);min-width:48px;text-align:center;">${p.score} pts</span>
+                  <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="1" title="Add a point">+</button>
+                  <button class="qb-remove-x" data-action="remove-player" data-id="${p.id}" title="Remove this player">&times;</button>
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="qb-admin-card">
+          ${sessionCardHTML()}
         </div>
       </div>
     `;
