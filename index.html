@@ -1921,14 +1921,17 @@
     return { label: n === 1 ? '1 Track Layer' : n + ' Track Layers', points: points };
   }
 
-  async function openAddForm(){
+  async function openAddForm(presetType){
     const rounds = await getRounds();
     formOpen = 'add';
-    formLabel = 'Round ' + (rounds.length + 1);
+    formType = presetType === 'sudden' ? 'sudden' : 'song';
+    // number within the right section: main rounds and sudden deaths count separately
+    formLabel = formType === 'sudden'
+      ? 'Sudden death ' + (rounds.filter(r => r.type === 'sudden').length + 1)
+      : 'Round ' + (rounds.filter(r => r.type !== 'sudden').length + 1);
     formSong = '';
     formArtist = '';
     formStages = [1,2,3,4,5].map(n => newStageRow(n, 6 - n));
-    formType = 'song';
     formWager = false;
     formClue = '';
     formClueImage = '';
@@ -2112,8 +2115,11 @@
     s.quizTitle = prev.quizTitle || null; // survives round loads
     s.roundId = r.id;
     s.roundLabel = r.label;
-    s.roundNumber = rounds.indexOf(r) + 1;
-    s.roundTotal = rounds.length;
+    // sudden deaths sit outside the running order: no "X of Y" for them, and
+    // they never count as "the final round" for the tie detection
+    const mains = rounds.filter(x => x.type !== 'sudden');
+    s.roundNumber = r.type === 'sudden' ? 0 : mains.indexOf(r) + 1;
+    s.roundTotal = r.type === 'sudden' ? 0 : mains.length;
     s.status = 'live';
     if(r.type === 'question' || r.type === 'text'){
       // everyone answers on their phone against the clock, no lockout
@@ -2392,8 +2398,13 @@
   async function moveRound(id, dir){
     const rounds = await getRounds();
     const i = rounds.findIndex(r => r.id === id);
-    const j = i + dir;
-    if(i < 0 || j < 0 || j >= rounds.length) return;
+    if(i < 0) return;
+    // main rounds and sudden deaths are shown as separate sections, so a move
+    // swaps with the nearest round of the same section, skipping the other kind
+    const isSudden = rounds[i].type === 'sudden';
+    let j = i + dir;
+    while(j >= 0 && j < rounds.length && (rounds[j].type === 'sudden') !== isSudden) j += dir;
+    if(j < 0 || j >= rounds.length) return;
     [rounds[i], rounds[j]] = [rounds[j], rounds[i]];
     await saveRounds(rounds);
     renderAdmin();
@@ -2843,9 +2854,7 @@
       if(r.type === 'sudden') return `${esc(r.question || '')} &middot; ${esc(r.answer || '')} &middot; ${r.points} pts`;
       return `${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${(r.stages || []).length} layers${r.isWager ? ' &middot; clue: ' + esc(r.wagerClue || '') : ''}`;
     };
-    const roundsListHTML = rounds.length === 0
-      ? `<p class="qb-small">No rounds built yet. Add your first one below.</p>`
-      : rounds.map((r, idx) => `
+    const roundRowHTML = (r, idx, list) => `
         <div class="qb-round-row ${state.roundId === r.id ? 'now' : r.played ? 'played' : ''}">
           <div class="rr-top">
             <div>
@@ -2856,12 +2865,20 @@
           <div class="rr-actions">
             <button class="qb-btn qb-btn-primary qb-btn-small" style="flex:1;" data-action="load-round" data-id="${r.id}">${r.played ? 'Play again' : 'Load to play'}</button>
             <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" data-dir="-1" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
-            <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" data-dir="1" title="Move down" ${idx === rounds.length - 1 ? 'disabled' : ''}>▼</button>
+            <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" data-dir="1" title="Move down" ${idx === list.length - 1 ? 'disabled' : ''}>▼</button>
             <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="edit-round" data-id="${r.id}">Edit</button>
             <button class="qb-remove-x" data-action="delete-round" data-id="${r.id}">&times;</button>
           </div>
         </div>
-      `).join('');
+      `;
+    const mainRounds = rounds.filter(r => r.type !== 'sudden');
+    const suddenRounds = rounds.filter(r => r.type === 'sudden');
+    const roundsListHTML = mainRounds.length === 0
+      ? `<p class="qb-small">No rounds built yet. Add your first one below.</p>`
+      : mainRounds.map((r, i) => roundRowHTML(r, i, mainRounds)).join('');
+    const suddenListHTML = suddenRounds.length === 0
+      ? `<p class="qb-small">None built yet. Add up to 3 in case the night ends level &mdash; they only run when you load one.</p>`
+      : suddenRounds.map((r, i) => roundRowHTML(r, i, suddenRounds)).join('');
 
     root.innerHTML = `
       ${backLink('home','&larr; Back')}
@@ -2912,6 +2929,12 @@
             <h3>📚 Round library</h3>
             ${roundsListHTML}
             <button class="qb-btn qb-btn-ghost" data-action="add-round" style="margin-top:6px;">+ Add a round</button>
+          </div>
+          <div class="qb-admin-section">
+            <h3>⚡ Sudden death</h3>
+            <p class="qb-small" style="margin-top:0;">Tie-breakers for the end of the night. They sit outside the running order, so they don't count towards &ldquo;Round X of Y&rdquo;.</p>
+            ${suddenListHTML}
+            <button class="qb-btn qb-btn-ghost" data-action="add-round" data-type="sudden" style="margin-top:6px;">+ Add a sudden death</button>
           </div>
         </div>
 
@@ -3076,7 +3099,7 @@
         } else if(action === 'toggle-sound'){
           toggleSound();
         } else if(action === 'add-round'){
-          openAddForm();
+          openAddForm(el.getAttribute('data-type'));
         } else if(action === 'edit-round'){
           readFormFromDOM();
           const rounds = await getRounds();
