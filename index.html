@@ -707,9 +707,48 @@
     if(audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
     return audioCtx;
   }
+
+  // Best-effort iPhone silent-switch workaround. Web Audio on iOS plays through
+  // the "ringer" channel, which the physical mute switch silences. Playing a
+  // looping (silent) <audio> element flips the page's audio session to the
+  // "media" channel on many iOS versions, so buzzers survive silent mode. It is
+  // NOT guaranteed on every iOS build, so we still tell people to unmute.
+  let silentAudioEl = null;
+  function makeSilentWavUrl(){
+    // 0.15s of 8-bit mono silence (unsigned midpoint 128) — built at runtime so
+    // there's no giant base64 blob in the source
+    const rate = 8000, samples = Math.floor(rate * 0.15), dataLen = samples;
+    const buf = new ArrayBuffer(44 + dataLen), dv = new DataView(buf);
+    const wr = (off, s) => { for(let i = 0; i < s.length; i++) dv.setUint8(off + i, s.charCodeAt(i)); };
+    wr(0, 'RIFF'); dv.setUint32(4, 36 + dataLen, true); wr(8, 'WAVE'); wr(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, rate, true); dv.setUint32(28, rate, true); dv.setUint16(32, 1, true);
+    dv.setUint16(34, 8, true); wr(36, 'data'); dv.setUint32(40, dataLen, true);
+    for(let i = 0; i < dataLen; i++) dv.setUint8(44 + i, 128);
+    let bin = ''; const bytes = new Uint8Array(buf);
+    for(let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+  function primeMediaChannel(){
+    try{
+      if(!silentAudioEl){
+        silentAudioEl = new Audio(makeSilentWavUrl());
+        silentAudioEl.loop = true;
+        silentAudioEl.volume = 0.01;
+        silentAudioEl.setAttribute('playsinline', '');
+      }
+      if(silentAudioEl.paused) silentAudioEl.play().catch(()=>{});
+    }catch(e){}
+  }
+
   // browsers block sound until the page has been interacted with once, so any
-  // first tap anywhere (joining, buzzing, an admin click) unlocks the audio
-  document.addEventListener('pointerdown', ensureAudio, true);
+  // first tap anywhere (joining, buzzing, an admin click) unlocks the audio and
+  // primes the media channel for iPhones
+  function unlockAudio(){ ensureAudio(); primeMediaChannel(); }
+  document.addEventListener('pointerdown', unlockAudio, true);
+  // cast tabs and backgrounded phones auto-suspend the context; wake it back up
+  // whenever the page becomes visible again so the projector never goes quiet
+  document.addEventListener('visibilitychange', () => { if(!document.hidden){ ensureAudio(); primeMediaChannel(); } });
 
   function tone(freq, at, dur, type, vol, endFreq){
     const t0 = audioCtx.currentTime + at;
@@ -1461,6 +1500,9 @@
       // fine-grained ticker for the answer countdowns and the TIME'S UP moments
       displayTick = setInterval(() => {
         if(view !== 'display') return;
+        // keep the cast tab's audio alive: browsers quietly suspend the context
+        // on backgrounded/cast tabs, which is what silences the projector mid-game
+        if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
         if(displayBuzzTimer){
           const remain = Math.max(0, Math.ceil((displayBuzzTimer.endsAt - Date.now()) / 1000));
           const el = document.getElementById('qb-countdown');
@@ -1669,7 +1711,7 @@
             ${joinedPlayersHTML(players)}
           </div>
         </div>
-        <div class="qb-volume-nudge">🔊 Turn your phone volume UP &amp; unmute your ringer &mdash; each player has their own buzzer sound for the full experience!</div>
+        <div class="qb-volume-nudge">🔊 Turn your phone volume UP &mdash; and iPhones, flick the <strong>side switch off silent</strong> (orange = muted). Each player has their own buzzer sound!</div>
         <div class="qb-rules">
           <h3>How it works</h3>
           <ol>
@@ -2352,6 +2394,29 @@
   function normalizeAnswer(t){
     return String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
   }
+  // Levenshtein edit distance, so near-misses ("aniston" vs "annistonn") can be
+  // pre-approved instead of the host ticking every typo by hand
+  function editDistance(a, b){
+    if(a === b) return 0;
+    if(!a.length) return b.length;
+    if(!b.length) return a.length;
+    let prev = Array.from({length: b.length + 1}, (_, i) => i);
+    for(let i = 1; i <= a.length; i++){
+      const cur = [i];
+      for(let j = 1; j <= b.length; j++){
+        cur[j] = a[i-1] === b[j-1] ? prev[j-1] : 1 + Math.min(prev[j-1], prev[j], cur[j-1]);
+      }
+      prev = cur;
+    }
+    return prev[b.length];
+  }
+  // how many typos to forgive automatically, scaled to the answer's length
+  function fuzzyTolerance(len){
+    if(len <= 3) return 0;
+    if(len <= 5) return 1;
+    if(len <= 9) return 2;
+    return 3;
+  }
   let reviewMarks = null;   // the host's per-player verdicts while reviewing (admin tab only)
 
   async function startTextReview(acceptAll){
@@ -2360,14 +2425,20 @@
     const raw = await fetchAnswers(s.answerEpoch);
     const cutoff = (s.buzzersOpenedAt || 0) + (s.qSeconds || TEXT_SECONDS) * 1000 + 600;
     const want = normalizeAnswer(s.textAnswer);
+    const tol = fuzzyTolerance(want.length);
     const pending = [];
     Object.values(raw).forEach(a => {
       if(!a || !a.id || typeof a.text !== 'string') return;
       if(!acceptAll && s.buzzersOpenedAt && a.ts && a.ts > cutoff) return;
+      const got = normalizeAnswer(a.text);
+      const dist = want ? editDistance(got, want) : 99;
       pending.push({
         id: a.id, name: a.name || '', avatar: a.avatar || '', text: a.text,
         ms: (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null,
-        auto: !!want && normalizeAnswer(a.text) === want
+        // exact match, or close enough that it's almost certainly a typo
+        auto: !!want && dist <= tol,
+        exact: !!want && dist === 0,
+        dist
       });
     });
     pending.sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
@@ -2832,12 +2903,12 @@
       } else if(state.reviewing){
         phasePanel = `
           <div class="qb-buzzed-banner" style="text-align:left;">
-            <div class="qb-small" style="text-align:center;margin-bottom:10px;">⏰ Time's up &mdash; tick who you're accepting, then confirm. Nobody scores until you do.</div>
+            <div class="qb-small" style="text-align:center;margin-bottom:10px;">⏰ Time's up &mdash; exact &amp; near-miss answers are pre-ticked. Adjust any you like, then confirm. Nobody scores until you do.</div>
             ${(state.pendingAnswers || []).length ? (state.pendingAnswers || []).map(a => `
               <div class="qb-review-row">
                 <button class="qb-btn qb-btn-small ${reviewMarks && reviewMarks[a.id] ? 'qb-btn-gold' : 'qb-btn-ghost'}" style="width:44px;" data-action="toggle-review-mark" data-id="${a.id}">${reviewMarks && reviewMarks[a.id] ? '✓' : '✗'}</button>
                 <span class="txt">${a.avatar || ''} ${esc(a.name || '')}: &ldquo;${esc(a.text || '')}&rdquo;</span>
-                <span class="ms">${a.ms ? (a.ms / 1000).toFixed(1) + 's' : ''}${a.auto ? ' · auto-match' : ''}</span>
+                <span class="ms">${a.ms ? (a.ms / 1000).toFixed(1) + 's' : ''}${a.exact ? ' · exact' : a.auto ? ` · close (${a.dist} off)` : (a.dist <= 4 ? ` · ${a.dist} off` : '')}</span>
               </div>
             `).join('') : '<p class="qb-small">Nobody answered in time.</p>'}
             <button class="qb-btn qb-btn-gold" data-action="confirm-review" style="margin-top:10px;">Confirm &amp; score it</button>
