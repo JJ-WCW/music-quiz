@@ -1254,7 +1254,7 @@
         // don't repaint while the player is typing a wager or a text answer,
         // or the poll would wipe their input every 800ms
         const typing = document.activeElement && (document.activeElement.id === 'qb-bet-amount' || document.activeElement.id === 'qb-text-answer');
-        if(view === 'player' && !typing) renderPlayer();
+        if(view === 'player' && bucket && !typing) renderPlayer();
       }, 800);
     }
   }
@@ -1450,7 +1450,7 @@
       return;
     }
     if(!displayPoll){
-      displayPoll = setInterval(() => { if(view === 'display') renderDisplay(); }, 900);
+      displayPoll = setInterval(() => { if(view === 'display' && bucket) renderDisplay(); }, 900);
       // fine-grained ticker for the answer countdowns and the TIME'S UP moments
       displayTick = setInterval(() => {
         if(view !== 'display') return;
@@ -2579,9 +2579,31 @@
       alert('Set an admin password first. It keeps players out of this host screen if they fiddle with the link.');
       return;
     }
+    // optional custom game code: lowercase letters and digits only, 4+ chars,
+    // and it must not already be someone's game
+    const customEl = document.getElementById('qb-new-code');
+    let custom = customEl ? customEl.value.toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+    if(customEl && customEl.value.trim() && !custom){
+      alert('Game codes can only use letters and numbers.');
+      return;
+    }
+    if(custom && custom.length < 4){
+      alert('Make the game code at least 4 characters, so it is not too easy to guess.');
+      return;
+    }
     const btn = document.getElementById('qb-start-session-btn');
     if(btn){ btn.disabled = true; btn.textContent = 'Starting…'; }
-    bucket = makeGameCode();
+    if(custom){
+      try{
+        const res = await fetch(FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(custom) + '.json?shallow=true', { cache:'no-store' });
+        if(res.ok && await res.json() !== null){
+          alert(`"${custom}" is already in use. Pick another code, or load it from the "Continue an existing game" section.`);
+          if(btn){ btn.disabled = false; btn.textContent = 'Start new game'; }
+          return;
+        }
+      }catch(e){ /* if the check itself fails, the seeding write below will surface the problem */ }
+    }
+    bucket = custom || makeGameCode();
     // writing the initial state both seeds the game and confirms the backend is reachable
     const ok = await kvSet('qb-state', JSON.stringify(defaultState()));
     if(!ok){
@@ -2625,15 +2647,39 @@
     return `
       <div class="qb-card">
         <h2 class="qb-title" style="font-size:22px;margin-top:0;">Start hosting</h2>${setupWarning}
-        <p class="qb-small">This creates a game code that links your admin, the projector display and your friends' phones together. No accounts needed.</p>
-        <label class="qb-label">Admin password</label>
-        <input class="qb-input" id="qb-admin-pass" type="password" maxlength="40" placeholder="Stops players opening this host screen" />
-        <button class="qb-btn qb-btn-primary" id="qb-start-session-btn" data-action="start-session">Start new game</button>
-        <p class="qb-small" style="margin-top:18px;">Already started one and lost the tab? Enter your game code:</p>
-        <input class="qb-input" id="qb-code-input" placeholder="Game code" value="${esc(codeDraft)}" />
-        <button class="qb-btn qb-btn-ghost" data-action="join-session">Continue with this code</button>
+        <p class="qb-small">A game code links your admin, the projector and your friends' phones together, and everything (rounds, players, scores) is saved under it. No accounts needed.</p>
+
+        <div class="qb-admin-section" style="margin-top:20px;">
+          <h3>🆕 Start a new game</h3>
+          <label class="qb-label">Admin password</label>
+          <input class="qb-input" id="qb-admin-pass" type="password" maxlength="40" placeholder="Stops players opening this host screen" />
+          <label class="qb-label">Pick your own game code (optional)</label>
+          <input class="qb-input" id="qb-new-code" maxlength="12" placeholder="e.g. joshquiz — blank for a random code" autocapitalize="off" autocomplete="off" />
+          <button class="qb-btn qb-btn-primary" id="qb-start-session-btn" data-action="start-session">Start new game</button>
+        </div>
+
+        <div class="qb-admin-section">
+          <h3>📂 Continue an existing game</h3>
+          <p class="qb-small">Lost the tab, or coming back to a game from earlier? Enter its code.</p>
+          <input class="qb-input" id="qb-code-input" placeholder="Game code" value="${esc(codeDraft)}" autocapitalize="off" autocomplete="off" />
+          <button class="qb-btn qb-btn-ghost" data-action="join-session">Load this game</button>
+        </div>
       </div>
     `;
+  }
+
+  // wire up the setup screen inputs: keep the typed code across re-renders and
+  // let Enter submit the section you're typing in
+  function bindSetupInputs(){
+    const codeEl = document.getElementById('qb-code-input');
+    if(codeEl){
+      codeEl.addEventListener('input', e => { codeDraft = e.target.value; });
+      codeEl.addEventListener('keydown', e => { if(e.key === 'Enter') joinExistingSession(); });
+    }
+    ['qb-admin-pass', 'qb-new-code'].forEach(id => {
+      const el = document.getElementById(id);
+      if(el) el.addEventListener('keydown', e => { if(e.key === 'Enter') startNewSession(); });
+    });
   }
 
   function projectorCardHTML(state){
@@ -2691,6 +2737,7 @@
     if(!bucket){
       root.innerHTML = `${backLink('home','&larr; Back')}${sessionSetupHTML()}`;
       bindActions();
+      bindSetupInputs();
       return;
     }
     if(!await isAdminUnlocked()){
@@ -2985,7 +3032,9 @@
     bindActions();
 
     if(!adminPoll){
-      adminPoll = setInterval(() => { if(view === 'admin' && !formOpen && !editingPlayerId && !editingTitle) renderAdmin(); }, 1200);
+      // no bucket means the "Start hosting" screen: nothing to poll, and a
+      // re-render there would wipe whatever the host is typing every second
+      adminPoll = setInterval(() => { if(view === 'admin' && bucket && !formOpen && !editingPlayerId && !editingTitle) renderAdmin(); }, 1200);
       adminTick = setInterval(() => {
         if(view !== 'admin') return;
         const el = document.getElementById('qb-admin-countdown');
