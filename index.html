@@ -142,6 +142,7 @@
     letter-spacing:2px;text-transform:uppercase;font-size:28px;margin-bottom:4px;
   }
   .qb-display .round-tag .of{color:var(--text-dim);font-size:20px;letter-spacing:1px;}
+  .qb-display .round-tag .rt-name{color:var(--gold);}
   .qb-display .qb-title{font-size:44px;margin:0 0 20px;}
   .qb-display .qb-stage-pill{font-size:18px;padding:10px 22px;margin-bottom:26px;}
   .qb-buzz-flash{
@@ -439,6 +440,9 @@
   .qb-round-row .rr-actions .qb-btn{margin:0;width:auto;white-space:nowrap;}
   .qb-round-row.played{opacity:0.55;}
   .qb-round-row.now{border:1px solid var(--gold);}
+  .qb-group{border:1px solid #2c3350;border-radius:14px;padding:12px;margin-bottom:14px;}
+  .qb-group.played{opacity:0.6;}
+  .qb-group-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;}
   .qb-score-adj:disabled{opacity:0.25;cursor:not-allowed;}
   .qb-stage-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
   .qb-stage-row input.qb-label-input{flex:3;}
@@ -499,6 +503,7 @@
   let formArtist = '';
   let formStages = [];       // [{label, points}]
   let formType = 'song';     // 'song' | 'question' (multiple choice) | 'text' (typed answer) | 'sudden' (sudden death buzzer)
+  let formGroupId = null;    // which round (group) the question being built belongs to; null for sudden deaths
   let formWager = false;     // song rounds: is this a wager round?
   let formClue = '';         // wager rounds: the hint shown on the projector while betting
   let formClueImage = '';    // wager rounds: optional picture shown with the clue
@@ -528,6 +533,9 @@
       roundNumber:0, roundTotal:0,
       buzzEpoch:'', buzzersOpenedAt:0,
       showStandings:false, showPodium:false, showLobby:false,
+      // rounds are groups of questions: roundLabel/roundNumber/roundTotal describe
+      // "General Knowledge · Question 2 of 5"; group fields say "Round 1 of 3"
+      groupNumber:0, groupTotal:0, showRoundIntro:null, endOfRound:null,
       lockedOut:[],
       // wager round: a clue for the next song shows on the projector first and
       // players may bet points on themselves; win the round to double your bet,
@@ -603,6 +611,28 @@
   }
   async function saveRounds(list){
     await kvSet('qb-rounds', JSON.stringify(list));
+  }
+
+  // ---------- the library: rounds are named groups of questions ----------
+  // storage stays under qb-rounds as [ ...groups, ...sudden deaths ]; anything
+  // saved before groups existed is folded into a single "Round 1" on first read
+  function upgradeLibrary(list){
+    const groups = [], suddens = [], legacy = [];
+    (list || []).forEach(item => {
+      if(!item) return;
+      if(item.type === 'group') groups.push(item);
+      else if(item.type === 'sudden') suddens.push(item);
+      else legacy.push(item);
+    });
+    if(legacy.length) groups.push({ id: makeId('g'), type:'group', name:'Round ' + (groups.length + 1), questions: legacy });
+    groups.forEach(g => { if(!Array.isArray(g.questions)) g.questions = []; });
+    return { groups, suddens };
+  }
+  async function getLibrary(){
+    return upgradeLibrary(await getRounds());
+  }
+  async function saveLibrary(lib){
+    await saveRounds([...lib.groups, ...lib.suddens]);
   }
 
   function makeId(prefix){
@@ -1590,6 +1620,8 @@
         showBanner('layer', `Layer ${(state.stageIndex||0) + 1} of ${(state.stages||[]).length}${currentStage ? `<div style="font-size:26px;margin-top:10px;">${esc(currentStage.label)} &middot; ${currentStage.points} pts up for grabs</div>` : ''}`);
       }
       if(isLobby && players.length > prev.playerCount) playSound('join');
+      const introGid = state.showRoundIntro ? state.showRoundIntro.gid : null;
+      if(introGid && introGid !== prev.introGid) playSound('layer');   // round announced!
     }
     prevDisplaySnap = {
       buzzedId: buzz ? buzz.id : null,
@@ -1598,7 +1630,8 @@
       status: state.status,
       lockedCount: (state.lockedOut || []).length,
       stageIndex: state.stageIndex || 0,
-      playerCount: players.length
+      playerCount: players.length,
+      introGid: state.showRoundIntro ? state.showRoundIntro.gid : null
     };
 
     // Live question already on screen for this same question? Patch just the
@@ -1606,7 +1639,8 @@
     // poll was restarting the clue image load (so it never appeared) and jolting
     // the layout once a second. The countdown keeps ticking via displayTick.
     const questionTimeUp = displayQTimer && displayQTimer.fired;
-    const paintingQuestion = answering && !state.reviewing && !questionTimeUp && !isLobby && !showStandings;
+    const showIntro = !!state.showRoundIntro;
+    const paintingQuestion = answering && !state.reviewing && !questionTimeUp && !isLobby && !showStandings && !showIntro;
     if(paintingQuestion && root.getAttribute('data-qepoch') === state.answerEpoch){
       const row = document.getElementById('qb-answered-row');
       if(row) row.innerHTML = answeredChipsHTML(Object.values(qAnswersLive).filter(a => a && a.id));
@@ -1618,8 +1652,22 @@
     let stagePill = '';
     let centre;
 
-    if(showStandings){
-      centre = standingsHTML(players);
+    if(showIntro){
+      const ri = state.showRoundIntro;
+      centre = `
+        <div class="qb-wager-splash" style="margin-top:30px;">
+          <div class="round-tag" style="font-size:20px;margin-bottom:14px;">Round ${ri.number} of ${ri.total}</div>
+          <div class="qb-wager-title" style="font-size:60px;color:var(--gold);">${esc(ri.name)}</div>
+          <div class="qb-pot" style="font-size:30px;margin-top:14px;">${ri.count} question${ri.count === 1 ? '' : 's'} &mdash; get ready!</div>
+        </div>
+      `;
+    } else if(showStandings){
+      centre = standingsHTML(players)
+        + (state.endOfRound && state.endOfRound.number && state.endOfRound.number < state.endOfRound.total
+            ? tipHTML(`Round ${state.endOfRound.number + 1} of ${state.endOfRound.total} coming up&hellip;`)
+            : state.endOfRound && state.endOfRound.number >= state.endOfRound.total && !tiedLeaders(players).length
+              ? tipHTML(`That was the final round &mdash; podium time! 🏆`)
+              : '');
     } else if(!isLobby && betting){
       const inList = Object.values(bettingAntes).filter(a => a && a.id);
       centre = `
@@ -1770,10 +1818,17 @@
           ${backLink('home','&larr; Back')}
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
-        <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
+        <div class="round-tag">${
+          showIntro ? 'Get ready'
+          : showStandings ? (state.endOfRound ? `That's the end of <span class="rt-name">${esc(state.endOfRound.name)}</span>` : 'Current standings')
+          : isLobby ? 'Get ready'
+          : state.roundTotal
+            ? `${state.groupTotal ? `<span class="of">Round ${state.groupNumber} of ${state.groupTotal} &middot;</span> ` : ''}${esc(state.roundLabel || '')} <span class="of">&middot; Question ${state.roundNumber} of ${state.roundTotal}</span>`
+            : esc(state.roundLabel || 'Music round')
+        }</div>
         <h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>
-        ${!isLobby && state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
-        ${!isLobby && state.suddenDeath && state.status === 'live' ? `
+        ${!isLobby && !showIntro && state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
+        ${!isLobby && !showIntro && state.suddenDeath && state.status === 'live' ? `
           <div class="qb-question-text">⚡ ${esc(state.question || '')}</div>
           ${(state.sdEligible || []).length
             ? tipHTML(`Tie-breaker! Only <strong>${esc((state.sdEligible || []).map(id => { const p = players.find(x => x.id === id); return p ? p.name : ''; }).filter(Boolean).join(' and '))}</strong> can buzz &mdash; fastest correct answer takes the lead.`)
@@ -1781,9 +1836,9 @@
         ` : ''}
         ${stagePill}
         ${centre}
-        ${!isLobby && !showStandings && state.status === 'reveal' && tiedAtTop.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal))
+        ${!isLobby && !showIntro && !showStandings && state.status === 'reveal' && tiedAtTop.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal && (!state.groupTotal || state.groupNumber === state.groupTotal)))
           ? tipHTML(`It's a <strong>tie</strong> between ${esc(tiedAtTop.map(p => p.name).join(' and '))}! A ⚡ sudden death round ${state.suddenDeath ? 'goes again' : 'is coming'} to settle it&hellip;`) : ''}
-        ${!isLobby && !showStandings && !state.qMode && !betting && state.status === 'live' && players.length ? `
+        ${!isLobby && !showIntro && !showStandings && !state.qMode && !betting && state.status === 'live' && players.length ? `
           <div class="qb-guess-row">
             ${players.map(p => {
               const sittingOut = state.suddenDeath && (state.sdEligible || []).length && !(state.sdEligible || []).includes(p.id);
@@ -1918,7 +1973,8 @@
   async function toggleStandings(){
     const s = await getGameState();
     s.showStandings = !s.showStandings;
-    if(s.showStandings){ s.showPodium = false; s.showLobby = false; }
+    if(s.showStandings){ s.showPodium = false; s.showLobby = false; s.showRoundIntro = null; }
+    else s.endOfRound = null;   // taking standings off dismisses the end-of-round note too
     await saveGameState(s);
     renderAdmin();
   }
@@ -1926,7 +1982,7 @@
   async function toggleLobby(){
     const s = await getGameState();
     s.showLobby = !s.showLobby;
-    if(s.showLobby){ s.showStandings = false; s.showPodium = false; }
+    if(s.showLobby){ s.showStandings = false; s.showPodium = false; s.showRoundIntro = null; }
     await saveGameState(s);
     renderAdmin();
   }
@@ -1940,7 +1996,7 @@
       if(tied.length && !confirm(`Top scores are level (${tied.map(p => p.name).join(', ')}). The podium will just pick one of them for 1st. Show it anyway?`)) return;
     }
     s.showPodium = !s.showPodium;
-    if(s.showPodium){ s.showStandings = false; s.showLobby = false; }
+    if(s.showPodium){ s.showStandings = false; s.showLobby = false; s.showRoundIntro = null; }
     await saveGameState(s);
     renderAdmin();
   }
@@ -2002,14 +2058,18 @@
     return { label: n === 1 ? '1 Track Layer' : n + ' Track Layers', points: points };
   }
 
-  async function openAddForm(presetType){
-    const rounds = await getRounds();
+  async function openAddForm(presetType, groupId){
+    const lib = await getLibrary();
     formOpen = 'add';
+    formGroupId = groupId || null;
     formType = presetType === 'sudden' ? 'sudden' : 'song';
-    // number within the right section: main rounds and sudden deaths count separately
-    formLabel = formType === 'sudden'
-      ? 'Sudden death ' + (rounds.filter(r => r.type === 'sudden').length + 1)
-      : 'Round ' + (rounds.filter(r => r.type !== 'sudden').length + 1);
+    // auto-title within the right pool: questions get Qn, tie-breakers their own count
+    if(formType === 'sudden'){
+      formLabel = 'Sudden death ' + (lib.suddens.length + 1);
+    } else {
+      const g = lib.groups.find(x => x.id === formGroupId);
+      formLabel = 'Q' + (((g && g.questions) || []).length + 1);
+    }
     formSong = '';
     formArtist = '';
     formStages = [1,2,3,4,5].map(n => newStageRow(n, 6 - n));
@@ -2028,8 +2088,9 @@
     renderAdmin();
   }
 
-  function openEditForm(round){
+  function openEditForm(round, groupId){
     formOpen = round.id;
+    formGroupId = groupId || null;
     formType = ['question','text','sudden'].includes(round.type) ? round.type : 'song';
     formLabel = round.label || '';
     formSong = round.songTitle || '';
@@ -2053,6 +2114,98 @@
 
   function closeForm(){
     formOpen = false;
+    formGroupId = null;
+    renderAdmin();
+  }
+
+  // ---------- round (group) management ----------
+  async function addGroup(){
+    const name = prompt('Name this round (e.g. General Knowledge):');
+    if(!name || !name.trim()) return;
+    const lib = await getLibrary();
+    lib.groups.push({ id: makeId('g'), type:'group', name: name.trim(), questions: [] });
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function renameGroup(gid){
+    const lib = await getLibrary();
+    const g = lib.groups.find(x => x.id === gid);
+    if(!g) return;
+    const name = prompt('Rename this round:', g.name);
+    if(!name || !name.trim()) return;
+    g.name = name.trim();
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function deleteGroup(gid){
+    const lib = await getLibrary();
+    const g = lib.groups.find(x => x.id === gid);
+    if(!g) return;
+    const n = (g.questions || []).length;
+    if(!confirm(`Delete the round "${g.name}"${n ? ` and its ${n} question${n===1?'':'s'}` : ''}?`)) return;
+    lib.groups = lib.groups.filter(x => x.id !== gid);
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function moveGroup(gid, dir){
+    const lib = await getLibrary();
+    const i = lib.groups.findIndex(x => x.id === gid);
+    const j = i + dir;
+    if(i < 0 || j < 0 || j >= lib.groups.length) return;
+    [lib.groups[i], lib.groups[j]] = [lib.groups[j], lib.groups[i]];
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function moveQuestion(gid, id, dir){
+    const lib = await getLibrary();
+    const g = lib.groups.find(x => x.id === gid);
+    if(!g) return;
+    const i = (g.questions || []).findIndex(q => q.id === id);
+    const j = i + dir;
+    if(i < 0 || j < 0 || j >= g.questions.length) return;
+    [g.questions[i], g.questions[j]] = [g.questions[j], g.questions[i]];
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function moveSudden(id, dir){
+    const lib = await getLibrary();
+    const i = lib.suddens.findIndex(x => x.id === id);
+    const j = i + dir;
+    if(i < 0 || j < 0 || j >= lib.suddens.length) return;
+    [lib.suddens[i], lib.suddens[j]] = [lib.suddens[j], lib.suddens[i]];
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function deleteQuestion(gid, id){
+    if(!confirm('Delete this question?')) return;
+    const lib = await getLibrary();
+    const g = lib.groups.find(x => x.id === gid);
+    if(!g) return;
+    g.questions = (g.questions || []).filter(q => q.id !== id);
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+  async function deleteSudden(id){
+    if(!confirm('Delete this sudden death round?')) return;
+    const lib = await getLibrary();
+    lib.suddens = lib.suddens.filter(x => x.id !== id);
+    await saveLibrary(lib);
+    renderAdmin();
+  }
+
+  // host presses "Announce" on a round: the projector shows its intro splash
+  async function announceRound(gid){
+    const lib = await getLibrary();
+    const gi = lib.groups.findIndex(g => g.id === gid);
+    if(gi < 0) return;
+    const g = lib.groups[gi];
+    const s = await getGameState();
+    const alreadyShowing = s.showRoundIntro && s.showRoundIntro.gid === gid;
+    s.showRoundIntro = alreadyShowing ? null : {
+      gid, name: g.name, number: gi + 1, total: lib.groups.length, count: (g.questions || []).length
+    };
+    if(s.showRoundIntro){ s.showStandings = false; s.showPodium = false; s.showLobby = false; s.endOfRound = null; }
+    await saveGameState(s);
     renderAdmin();
   }
 
@@ -2164,43 +2317,66 @@
       };
     }
 
-    const rounds = await getRounds();
-    if(formOpen === 'add'){
-      rounds.push({ id: makeId('r'), label: formLabel.trim() || `Round ${rounds.length + 1}`, ...data });
+    const lib = await getLibrary();
+    if(formType === 'sudden'){
+      if(formOpen === 'add'){
+        lib.suddens.push({ id: makeId('r'), label: formLabel.trim() || `Sudden death ${lib.suddens.length + 1}`, ...data });
+      } else {
+        const existing = lib.suddens.find(r => r.id === formOpen);
+        if(existing) Object.assign(existing, { label: formLabel.trim() || existing.label }, data);
+      }
     } else {
-      const existing = rounds.find(r => r.id === formOpen);
-      if(existing) Object.assign(existing, { label: formLabel.trim() || existing.label }, data);
+      const g = lib.groups.find(x => x.id === formGroupId);
+      if(!g){ alert('That round no longer exists — add the question again.'); formOpen = false; formGroupId = null; renderAdmin(); return; }
+      if(formOpen === 'add'){
+        g.questions.push({ id: makeId('r'), label: formLabel.trim() || `Q${g.questions.length + 1}`, ...data });
+      } else {
+        const existing = g.questions.find(q => q.id === formOpen);
+        if(existing) Object.assign(existing, { label: formLabel.trim() || existing.label }, data);
+      }
     }
-    await saveRounds(rounds);
+    await saveLibrary(lib);
     formOpen = false;
+    formGroupId = null;
     renderAdmin();
   }
 
-  async function deleteRound(id){
-    if(!confirm('Delete this round from the library?')) return;
-    const rounds = await getRounds();
-    await saveRounds(rounds.filter(r => r.id !== id));
-    renderAdmin();
-  }
-
-  async function loadRoundToPlay(id){
-    const rounds = await getRounds();
-    const r = rounds.find(x => x.id === id);
+  async function loadRoundToPlay(id, gid){
+    const lib = await getLibrary();
+    let r = null, g = null, gi = -1, qi = -1;
+    if(gid){
+      gi = lib.groups.findIndex(x => x.id === gid);
+      g = lib.groups[gi];
+      if(g){
+        qi = (g.questions || []).findIndex(q => q.id === id);
+        r = g.questions[qi];
+      }
+    } else {
+      r = lib.suddens.find(x => x.id === id);
+    }
     if(!r) return false;
     const prev = await getGameState();
-    // guard against the classic mis-click: nuking a round that is still live
+    // guard against the classic mis-click: nuking a question that is still live
     if(prev.status === 'live' && prev.roundId && prev.roundId !== id){
-      if(!confirm(`"${prev.roundLabel || 'A round'}" is still live. Abandon it and load "${r.label}" instead?`)) return false;
+      if(!confirm(`"${prev.roundLabel || 'A round'}" still has a live question. Abandon it and load this one instead?`)) return false;
     }
     const s = defaultState();
     s.quizTitle = prev.quizTitle || null; // survives round loads
     s.roundId = r.id;
-    s.roundLabel = r.label;
-    // sudden deaths sit outside the running order: no "X of Y" for them, and
-    // they never count as "the final round" for the tie detection
-    const mains = rounds.filter(x => x.type !== 'sudden');
-    s.roundNumber = r.type === 'sudden' ? 0 : mains.indexOf(r) + 1;
-    s.roundTotal = r.type === 'sudden' ? 0 : mains.length;
+    if(g){
+      // "General Knowledge · Question 2 of 5", plus "Round 1 of 3" for context
+      s.roundLabel = g.name;
+      s.roundNumber = qi + 1;
+      s.roundTotal = g.questions.length;
+      s.groupNumber = gi + 1;
+      s.groupTotal = lib.groups.length;
+    } else {
+      // sudden deaths sit outside the running order: no numbering, and they
+      // never count as "the final round" for the tie detection
+      s.roundLabel = r.label;
+      s.roundNumber = 0; s.roundTotal = 0;
+      s.groupNumber = 0; s.groupTotal = 0;
+    }
     s.status = 'live';
     if(r.type === 'question' || r.type === 'text'){
       // everyone answers on their phone against the clock, no lockout
@@ -2250,7 +2426,7 @@
     // stamp the clock so buzz/answer times are exact server-time maths
     if(s.buzzEpoch || s.answerEpoch) await stampBuzzersOpened();
     // mark it played in the library (visual cue only, it stays loadable)
-    if(!r.played){ r.played = true; await saveRounds(rounds); }
+    if(!r.played){ r.played = true; await saveLibrary(lib); }
     renderAdmin();
   }
 
@@ -2305,7 +2481,26 @@
       s.wagerActive = false;
     }
     await saveGameState(s);
+    scheduleEndOfRoundStandings(s);
     renderAdmin();
+  }
+
+  // After the LAST question of a round resolves, give the room a breather: let
+  // the reveal sit for a few seconds, then bring the standings up automatically
+  // with an "end of round" note. Skipped if the host has already moved on.
+  function scheduleEndOfRoundStandings(s){
+    if(!s.roundTotal || s.roundNumber !== s.roundTotal || s.suddenDeath) return;
+    const endedId = s.roundId;
+    const note = { name: s.roundLabel || '', number: s.groupNumber || 0, total: s.groupTotal || 0 };
+    setTimeout(async () => {
+      const cur = await getGameState();
+      if(cur.roundId !== endedId || cur.status !== 'reveal') return;
+      if(cur.showStandings || cur.showPodium || cur.showLobby || cur.showRoundIntro) return;
+      cur.showStandings = true;
+      cur.endOfRound = note;
+      await saveGameState(cur);
+      renderAdmin();
+    }, 8000);
   }
 
   // a resolved buzz feeds the reaction-time stats shown on the buzz flash and podium
@@ -2346,6 +2541,7 @@
       s.wagerActive = false;
     }
     await saveGameState(s);
+    scheduleEndOfRoundStandings(s);
     renderAdmin();
   }
 
@@ -2385,6 +2581,7 @@
     s.qResults = results;
     s.status = 'reveal';
     await saveGameState(s);
+    scheduleEndOfRoundStandings(s);
     renderAdmin();
   }
 
@@ -2474,6 +2671,7 @@
     s.reviewing = false;
     s.status = 'reveal';
     await saveGameState(s);
+    scheduleEndOfRoundStandings(s);
     reviewMarks = null;
     renderAdmin();
   }
@@ -2505,21 +2703,6 @@
     renderAdmin();
   }
 
-  async function moveRound(id, dir){
-    const rounds = await getRounds();
-    const i = rounds.findIndex(r => r.id === id);
-    if(i < 0) return;
-    // main rounds and sudden deaths are shown as separate sections, so a move
-    // swaps with the nearest round of the same section, skipping the other kind
-    const isSudden = rounds[i].type === 'sudden';
-    let j = i + dir;
-    while(j >= 0 && j < rounds.length && (rounds[j].type === 'sudden') !== isSudden) j += dir;
-    if(j < 0 || j >= rounds.length) return;
-    [rounds[i], rounds[j]] = [rounds[j], rounds[i]];
-    await saveRounds(rounds);
-    renderAdmin();
-  }
-
   async function resetGame(){
     if(!confirm('Reset all scores and end the current round? Your round library stays intact.')) return false;
     const players = await getPlayers();
@@ -2529,11 +2712,10 @@
     fresh.quizTitle = (await getGameState()).quizTitle || null; // a reset keeps the quiz name
     await saveGameState(fresh);
     // fresh night, fresh library: clear the "played" ticks too
-    const rounds = await getRounds();
-    if(rounds.some(r => r.played)){
-      rounds.forEach(r => { delete r.played; });
-      await saveRounds(rounds);
-    }
+    const lib = await getLibrary();
+    lib.groups.forEach(g => (g.questions || []).forEach(q => { delete q.played; }));
+    lib.suddens.forEach(r => { delete r.played; });
+    await saveLibrary(lib);
     renderAdmin();
   }
 
@@ -2541,18 +2723,19 @@
     if(!formOpen) return '';
     return `
       <div class="qb-admin-section">
-        <h3>${formOpen === 'add' ? '🛠 Add a round' : '🛠 Edit round'}</h3>
+        <h3>${formType === 'sudden'
+          ? (formOpen === 'add' ? '🛠 Add a sudden death' : '🛠 Edit sudden death')
+          : (formOpen === 'add' ? `🛠 Add ${esc(formLabel || 'a question')}` : `🛠 Edit ${esc(formLabel || 'question')}`)}</h3>
+        ${formType === 'sudden' ? '' : `
         <div class="qb-qtype-row">
-          <button class="qb-btn qb-btn-small ${formType === 'song' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="song">🎵 Song round</button>
+          <button class="qb-btn qb-btn-small ${formType === 'song' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="song">🎵 Song</button>
           <button class="qb-btn qb-btn-small ${formType === 'question' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="question">❓ Multiple choice</button>
           <button class="qb-btn qb-btn-small ${formType === 'text' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="text">⌨️ Type the answer</button>
-          <button class="qb-btn qb-btn-small ${formType === 'sudden' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="sudden">⚡ Sudden death</button>
         </div>
+        `}
         ${formType === 'text' ? `
         <div class="qb-form-cols">
           <div>
-            <label class="qb-label">Round label (optional)</label>
-            <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
             <label class="qb-label">Question</label>
             <input class="qb-input" id="qb-q-text" placeholder="e.g. What year did Oasis split up?" value="${esc(formQuestion)}" />
             <label class="qb-label">Image link (optional clue &mdash; paste a picture URL)</label>
@@ -2597,8 +2780,6 @@
         ` : formType === 'question' ? `
         <div class="qb-form-cols">
           <div>
-            <label class="qb-label">Round label (optional)</label>
-            <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
             <label class="qb-label">Question</label>
             <input class="qb-input" id="qb-q-text" placeholder="e.g. Which of these was a Beatles B-side?" value="${esc(formQuestion)}" />
             <label class="qb-label">Image link (optional clue &mdash; paste a picture URL)</label>
@@ -2633,8 +2814,6 @@
         ` : `
         <div class="qb-form-cols">
           <div>
-            <label class="qb-label">Round label (optional)</label>
-            <input class="qb-input" id="qb-round-label" placeholder="e.g. Round 1" value="${esc(formLabel)}" />
             <label class="qb-label">Song title</label>
             <input class="qb-input" id="qb-round-song" placeholder="e.g. Don't Stop Me Now" value="${esc(formSong)}" />
             <label class="qb-label">Artist</label>
@@ -2791,7 +2970,7 @@
         <p class="qb-small" style="margin-top:0;">The projector follows the game on its own; these switch it to the special screens.</p>
         <button class="qb-btn qb-btn-small ${state.showLobby ? 'qb-btn-gold' : ''}" data-action="toggle-lobby">${state.showLobby ? 'Back to the game screen' : '👋 Show lobby (join QR)'}</button>
         <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Back to the game screen' : '📊 Show score standings'}</button>
-        <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Hide the podium' : '🏆 Show podium reveal'}</button>
+        <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && (!state.groupTotal || state.groupNumber === state.groupTotal) && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Hide the podium' : '🏆 Show podium reveal'}</button>
       </div>
     `;
   }
@@ -2857,7 +3036,7 @@
       return;
     }
     const seq = ++adminSeq;
-    const [state, players, rounds] = await Promise.all([getGameState(), getPlayers(), getRounds()]);
+    const [state, players, lib] = await Promise.all([getGameState(), getPlayers(), getLibrary()]);
     const liveBuzz = (state.status === 'live' && state.buzzEpoch)
       ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
     if(seq !== adminSeq) return;   // a newer render superseded this one
@@ -2927,7 +3106,7 @@
         <div class="qb-admin-section">
           <h3>Question round</h3>
           <div class="qb-now-playing">
-            <div class="np-label">${esc(state.roundLabel || '')} &middot; ${typeTag} &middot; ${state.qPoints} pts, +${state.qBonus} fastest bonus</div>
+            <div class="np-label">${esc(state.roundLabel || '')}${state.roundTotal ? ` &middot; Question ${state.roundNumber} of ${state.roundTotal}` : ''} &middot; ${typeTag} &middot; ${state.qPoints} pts, +${state.qBonus} fastest bonus</div>
             <div class="np-song">${esc(state.question || '')}</div>
             <div class="qb-small">Answer (only you can see this): <strong>${esc(correctShown)}</strong></div>
           </div>
@@ -2984,7 +3163,7 @@
         <div class="qb-admin-section">
           <h3>${state.suddenDeath ? '⚡ Sudden death' : 'Now playing'}</h3>
           <div class="qb-now-playing">
-            <div class="np-label">${esc(state.roundLabel || '')} &middot; ${state.suddenDeath ? 'answer is on your screen only' : 'hidden from players until reveal'}${state.wagerActive ? ' &middot; 💰 wager, ' + (state.wagerPhase === 'playing' ? Object.values(state.bets || {}).reduce((t, n) => t + n, 0) : sumAntes(liveAntes)) + ' pts staked' : ''}</div>
+            <div class="np-label">${esc(state.roundLabel || '')}${state.roundTotal ? ` &middot; Question ${state.roundNumber} of ${state.roundTotal}` : ''} &middot; ${state.suddenDeath ? 'answer is on your screen only' : 'hidden from players until reveal'}${state.wagerActive ? ' &middot; 💰 wager, ' + (state.wagerPhase === 'playing' ? Object.values(state.bets || {}).reduce((t, n) => t + n, 0) : sumAntes(liveAntes)) + ' pts staked' : ''}</div>
             ${state.suddenDeath ? `
               <div class="np-song">${esc(state.question || '')}</div>
               <div class="qb-small">Answer (only you can see this): <strong>${esc(state.songTitle || '')}</strong></div>
@@ -3012,7 +3191,8 @@
       if(r.type === 'sudden') return `${esc(r.question || '')} &middot; ${esc(r.answer || '')} &middot; ${r.points} pts`;
       return `${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${(r.stages || []).length} layers${r.isWager ? ' &middot; clue: ' + esc(r.wagerClue || '') : ''}`;
     };
-    const roundRowHTML = (r, idx, list) => `
+    // gid is set for questions inside a round, absent for sudden deaths
+    const roundRowHTML = (r, idx, list, gid) => `
         <div class="qb-round-row ${state.roundId === r.id ? 'now' : r.played ? 'played' : ''}">
           <div class="rr-top">
             <div>
@@ -3021,22 +3201,42 @@
             </div>
           </div>
           <div class="rr-actions">
-            <button class="qb-btn qb-btn-primary qb-btn-small" style="flex:1;" data-action="load-round" data-id="${r.id}">${r.played ? 'Play again' : 'Load to play'}</button>
-            <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" data-dir="-1" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
-            <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" data-dir="1" title="Move down" ${idx === list.length - 1 ? 'disabled' : ''}>▼</button>
-            <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="edit-round" data-id="${r.id}">Edit</button>
-            <button class="qb-remove-x" data-action="delete-round" data-id="${r.id}">&times;</button>
+            <button class="qb-btn qb-btn-primary qb-btn-small" style="flex:1;" data-action="load-round" data-id="${r.id}" ${gid ? `data-gid="${gid}"` : ''}>${r.played ? 'Play again' : 'Load to play'}</button>
+            <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" ${gid ? `data-gid="${gid}"` : ''} data-dir="-1" title="Move up" ${idx === 0 ? 'disabled' : ''}>▲</button>
+            <button class="qb-score-adj" data-action="move-round" data-id="${r.id}" ${gid ? `data-gid="${gid}"` : ''} data-dir="1" title="Move down" ${idx === list.length - 1 ? 'disabled' : ''}>▼</button>
+            <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="edit-round" data-id="${r.id}" ${gid ? `data-gid="${gid}"` : ''}>Edit</button>
+            <button class="qb-remove-x" data-action="delete-round" data-id="${r.id}" ${gid ? `data-gid="${gid}"` : ''}>&times;</button>
           </div>
         </div>
       `;
-    const mainRounds = rounds.filter(r => r.type !== 'sudden');
-    const suddenRounds = rounds.filter(r => r.type === 'sudden');
-    const roundsListHTML = mainRounds.length === 0
-      ? `<p class="qb-small">No rounds built yet. Add your first one below.</p>`
-      : mainRounds.map((r, i) => roundRowHTML(r, i, mainRounds)).join('');
-    const suddenListHTML = suddenRounds.length === 0
+    const roundsListHTML = lib.groups.length === 0
+      ? `<p class="qb-small">No rounds yet. A round is a named group of questions &mdash; add one and fill it up.</p>`
+      : lib.groups.map((g, gi) => {
+          const qs = g.questions || [];
+          const playedCount = qs.filter(q => q.played).length;
+          const announced = state.showRoundIntro && state.showRoundIntro.gid === g.id;
+          return `
+          <div class="qb-group ${qs.length && playedCount === qs.length ? 'played' : ''}">
+            <div class="qb-group-head">
+              <div>
+                <div class="rr-title" style="font-size:16px;">Round ${gi + 1}: ${esc(g.name)}</div>
+                <div class="rr-meta">${qs.length} question${qs.length === 1 ? '' : 's'}${playedCount ? ` &middot; ${playedCount} played` : ''}</div>
+              </div>
+              <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+                <button class="qb-btn qb-btn-small ${announced ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="announce-round" data-gid="${g.id}" title="Show this round's intro on the projector">${announced ? 'Hide intro' : '📣 Announce'}</button>
+                <button class="qb-score-adj" data-action="rename-group" data-gid="${g.id}" title="Rename this round">&#9998;</button>
+                <button class="qb-score-adj" data-action="move-group" data-gid="${g.id}" data-dir="-1" title="Move round up" ${gi === 0 ? 'disabled' : ''}>▲</button>
+                <button class="qb-score-adj" data-action="move-group" data-gid="${g.id}" data-dir="1" title="Move round down" ${gi === lib.groups.length - 1 ? 'disabled' : ''}>▼</button>
+                <button class="qb-remove-x" data-action="delete-group" data-gid="${g.id}" title="Delete this whole round">&times;</button>
+              </div>
+            </div>
+            ${qs.length ? qs.map((q, qi) => roundRowHTML(q, qi, qs, g.id)).join('') : '<p class="qb-small">No questions in this round yet.</p>'}
+            <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="add-round" data-gid="${g.id}" style="margin-top:4px;">+ Add question</button>
+          </div>`;
+        }).join('');
+    const suddenListHTML = lib.suddens.length === 0
       ? `<p class="qb-small">None built yet. Add up to 3 in case the night ends level &mdash; they only run when you load one.</p>`
-      : suddenRounds.map((r, i) => roundRowHTML(r, i, suddenRounds)).join('');
+      : lib.suddens.map((r, i) => roundRowHTML(r, i, lib.suddens, null)).join('');
 
     root.innerHTML = `
       ${backLink('home','&larr; Back')}
@@ -3055,10 +3255,12 @@
 
         ${(() => {
           const tied = tiedLeaders(players);
-          // fires after the final round, and again if a sudden death itself ends unresolved
-          const tieMoment = state.status === 'reveal' && tied.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal));
+          // fires after the last question of the LAST round, and again if a
+          // sudden death itself ends unresolved
+          const finalQ = state.roundTotal && state.roundNumber === state.roundTotal && (!state.groupTotal || state.groupNumber === state.groupTotal);
+          const tieMoment = state.status === 'reveal' && tied.length && (state.suddenDeath || finalQ);
           if(!tieMoment) return '';
-          const suddens = rounds.filter(r => r.type === 'sudden' && !r.played);
+          const suddens = lib.suddens.filter(r => !r.played);
           return `<div class="qb-admin-card qb-full" style="border:1px solid var(--gold);">
             <div class="qb-admin-section">
               <h3>⚡ It's a tie for the lead!</h3>
@@ -3084,9 +3286,9 @@
 
         <div class="qb-admin-card">
           <div class="qb-admin-section">
-            <h3>📚 Round library</h3>
+            <h3>📚 Rounds</h3>
             ${roundsListHTML}
-            <button class="qb-btn qb-btn-ghost" data-action="add-round" style="margin-top:6px;">+ Add a round</button>
+            <button class="qb-btn qb-btn-ghost" data-action="add-group" style="margin-top:6px;">+ Add a round</button>
           </div>
           <div class="qb-admin-section">
             <h3>⚡ Sudden death</h3>
@@ -3204,7 +3406,9 @@
         } else if(action === 'confirm-review'){
           withUndo('scoring the typed answers', confirmTextScores);
         } else if(action === 'move-round'){
-          moveRound(el.getAttribute('data-id'), parseInt(el.getAttribute('data-dir'), 10));
+          const gid = el.getAttribute('data-gid');
+          if(gid) moveQuestion(gid, el.getAttribute('data-id'), parseInt(el.getAttribute('data-dir'), 10));
+          else moveSudden(el.getAttribute('data-id'), parseInt(el.getAttribute('data-dir'), 10));
         } else if(action === 'start-fresh'){
           startFresh();
         } else if(action === 'load-code'){
@@ -3260,35 +3464,40 @@
           undoLast();
         } else if(action === 'toggle-sound'){
           toggleSound();
+        } else if(action === 'add-group'){
+          addGroup();
+        } else if(action === 'rename-group'){
+          renameGroup(el.getAttribute('data-gid'));
+        } else if(action === 'delete-group'){
+          deleteGroup(el.getAttribute('data-gid'));
+        } else if(action === 'move-group'){
+          moveGroup(el.getAttribute('data-gid'), parseInt(el.getAttribute('data-dir'), 10));
+        } else if(action === 'announce-round'){
+          announceRound(el.getAttribute('data-gid'));
         } else if(action === 'add-round'){
-          openAddForm(el.getAttribute('data-type'));
+          openAddForm(el.getAttribute('data-type'), el.getAttribute('data-gid'));
         } else if(action === 'edit-round'){
-          readFormFromDOM();
-          const rounds = await getRounds();
-          const r = rounds.find(x => x.id === el.getAttribute('data-id'));
-          if(r) openEditForm(r);
+          const gid = el.getAttribute('data-gid');
+          const lib = await getLibrary();
+          const r = gid
+            ? ((lib.groups.find(x => x.id === gid) || {}).questions || []).find(q => q.id === el.getAttribute('data-id'))
+            : lib.suddens.find(x => x.id === el.getAttribute('data-id'));
+          if(r) openEditForm(r, gid);
         } else if(action === 'delete-round'){
-          deleteRound(el.getAttribute('data-id'));
+          const gid = el.getAttribute('data-gid');
+          if(gid) deleteQuestion(gid, el.getAttribute('data-id'));
+          else deleteSudden(el.getAttribute('data-id'));
         } else if(action === 'load-round'){
-          withUndo('loading that round', () => loadRoundToPlay(el.getAttribute('data-id')));
+          withUndo('loading that question', () => loadRoundToPlay(el.getAttribute('data-id'), el.getAttribute('data-gid')));
         } else if(action === 'toggle-wager'){
           readFormFromDOM();   // the checkbox's own .checked is already the new value
           renderAdmin();
         } else if(action === 'pick-round-type'){
           readFormFromDOM();
           const t = el.getAttribute('data-type');
-          formType = ['question', 'text', 'sudden'].includes(t) ? t : 'song';
+          formType = ['question', 'text'].includes(t) ? t : 'song';
           // sensible time prefill for the chosen type (typing needs longer); still editable
           formQSeconds = formType === 'text' ? TEXT_SECONDS : QUESTION_SECONDS;
-          // keep the auto-label in step with the section the round now belongs to,
-          // so a sudden death picked from "+ Add a round" isn't left titled "Round 3".
-          // Only touch it if the host hasn't typed their own label.
-          if(formOpen === 'add' && (!formLabel.trim() || /^(Round|Sudden death) \d+$/.test(formLabel.trim()))){
-            const rounds = await getRounds();
-            formLabel = formType === 'sudden'
-              ? 'Sudden death ' + (rounds.filter(r => r.type === 'sudden').length + 1)
-              : 'Round ' + (rounds.filter(r => r.type !== 'sudden').length + 1);
-          }
           renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();
