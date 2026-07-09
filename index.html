@@ -372,6 +372,13 @@
     background:var(--panel);border-radius:20px;padding:24px 32px;margin:0 auto 30px;
     max-width:780px;text-align:left;
   }
+  .qb-volume-nudge{
+    background:linear-gradient(90deg,var(--gold),#ffca5c);color:#1b1f2e;
+    font-weight:800;font-size:21px;border-radius:16px;padding:16px 26px;
+    max-width:780px;margin:0 auto 22px;text-align:center;
+    animation:qb-vol-pulse 1.7s ease-in-out infinite;
+  }
+  @keyframes qb-vol-pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.03);}}
   .qb-rules h3{margin:0 0 12px;color:var(--gold);font-family:'Archivo Black',sans-serif;letter-spacing:1px;font-size:20px;text-transform:uppercase;}
   .qb-rules ol{margin:0;padding-left:24px;font-size:19px;line-height:1.75;}
 
@@ -1639,6 +1646,7 @@
             ${joinedPlayersHTML(players)}
           </div>
         </div>
+        <div class="qb-volume-nudge">🔊 Turn your phone volume UP &amp; unmute your ringer &mdash; each player has their own buzzer sound for the full experience!</div>
         <div class="qb-rules">
           <h3>How it works</h3>
           <ol>
