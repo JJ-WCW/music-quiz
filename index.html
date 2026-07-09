@@ -527,7 +527,7 @@
       stageIndex:0,
       roundNumber:0, roundTotal:0,
       buzzEpoch:'', buzzersOpenedAt:0,
-      showStandings:false, showPodium:false,
+      showStandings:false, showPodium:false, showLobby:false,
       lockedOut:[],
       // wager round: a clue for the next song shows on the projector first and
       // players may bet points on themselves; win the round to double your bet,
@@ -1408,6 +1408,13 @@
       <div class="qb-lobby-chip"><span class="av">${p.avatar}</span> ${esc(p.name)}</div>
     `).join('') + `</div>`;
   }
+  // the "who's answered" chips on a live question; patched in place each poll so
+  // the rest of the question view (crucially the clue image) isn't rebuilt
+  function answeredChipsHTML(list){
+    return list.length
+      ? list.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} ✔</span>`).join('')
+      : 'Answers appear here as they come in&hellip;';
+  }
 
   // The join link and QR encode this page's own URL, so they only work on other
   // phones when the page itself is hosted somewhere phones can reach.
@@ -1492,7 +1499,8 @@
 
     const buzz = state.status === 'live' ? earliestBuzz(await fetchBuzzes(state.buzzEpoch), state.lockedOut) : null;
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
-    const isLobby = !state.roundId;
+    // showLobby lets the host force the join screen back up even mid-game
+    const isLobby = !state.roundId || !!state.showLobby;
     const showStandings = !!state.showStandings;
     const tiedAtTop = tiedLeaders(players);
     const betting = state.wagerActive && state.wagerPhase === 'betting';
@@ -1550,12 +1558,27 @@
       stageIndex: state.stageIndex || 0,
       playerCount: players.length
     };
+
+    // Live question already on screen for this same question? Patch just the
+    // "answered" chips and leave the rest of the DOM alone. Rebuilding it every
+    // poll was restarting the clue image load (so it never appeared) and jolting
+    // the layout once a second. The countdown keeps ticking via displayTick.
+    const questionTimeUp = displayQTimer && displayQTimer.fired;
+    const paintingQuestion = answering && !state.reviewing && !questionTimeUp && !isLobby && !showStandings;
+    if(paintingQuestion && root.getAttribute('data-qepoch') === state.answerEpoch){
+      const row = document.getElementById('qb-answered-row');
+      if(row) row.innerHTML = answeredChipsHTML(Object.values(qAnswersLive).filter(a => a && a.id));
+      return;
+    }
+    // remember which question (if any) this render is painting, for the patch above
+    root.setAttribute('data-qepoch', paintingQuestion ? state.answerEpoch : '');
+
     let stagePill = '';
     let centre;
 
     if(showStandings){
       centre = standingsHTML(players);
-    } else if(betting){
+    } else if(!isLobby && betting){
       const inList = Object.values(bettingAntes).filter(a => a && a.id);
       centre = `
         <div class="qb-wager-splash">
@@ -1576,9 +1599,9 @@
           </ol>
         </div>
       `;
-    } else if(answering && state.reviewing){
+    } else if(!isLobby && answering && state.reviewing){
       centre = `<div class="qb-idle-box">⏰ Pens down! The host is checking the answers&hellip;</div>`;
-    } else if(answering){
+    } else if(!isLobby && answering){
       const answeredList = Object.values(qAnswersLive).filter(a => a && a.id);
       const qTimeUp = displayQTimer && displayQTimer.fired;
       const remainQ = displayQTimer ? Math.max(0, Math.ceil((displayQTimer.endsAt - Date.now()) / 1000)) : (state.qSeconds || QUESTION_SECONDS);
@@ -1597,9 +1620,9 @@
           `).join('')}
         </div>
         `}
-        <div class="qb-answered-row">${answeredList.length ? answeredList.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} ✔</span>`).join('') : 'Answers appear here as they come in&hellip;'}</div>
+        <div class="qb-answered-row" id="qb-answered-row">${answeredChipsHTML(answeredList)}</div>
       `;
-    } else if(state.status === 'reveal' && state.qMode){
+    } else if(!isLobby && state.status === 'reveal' && state.qMode){
       const results = state.qResults || [];
       const answered = results.filter(r => r.answered).sort((a, b) => (a.correct === b.correct) ? ((a.ms || 9e9) - (b.ms || 9e9)) : (a.correct ? -1 : 1));
       const noAnswer = results.filter(r => !r.answered);
@@ -1707,8 +1730,8 @@
         </div>
         <div class="round-tag">${showStandings ? 'Current standings' : isLobby ? 'Get ready' : esc(state.roundLabel || 'Music round') + (state.roundTotal ? ` <span class="of">&middot; ${state.roundNumber} of ${state.roundTotal}</span>` : '')}</div>
         <h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>
-        ${state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
-        ${state.suddenDeath && state.status === 'live' ? `
+        ${!isLobby && state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
+        ${!isLobby && state.suddenDeath && state.status === 'live' ? `
           <div class="qb-question-text">⚡ ${esc(state.question || '')}</div>
           ${(state.sdEligible || []).length
             ? tipHTML(`Tie-breaker! Only <strong>${esc((state.sdEligible || []).map(id => { const p = players.find(x => x.id === id); return p ? p.name : ''; }).filter(Boolean).join(' and '))}</strong> can buzz &mdash; fastest correct answer takes the lead.`)
@@ -1716,9 +1739,9 @@
         ` : ''}
         ${stagePill}
         ${centre}
-        ${!showStandings && state.status === 'reveal' && tiedAtTop.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal))
+        ${!isLobby && !showStandings && state.status === 'reveal' && tiedAtTop.length && (state.suddenDeath || (state.roundTotal && state.roundNumber === state.roundTotal))
           ? tipHTML(`It's a <strong>tie</strong> between ${esc(tiedAtTop.map(p => p.name).join(' and '))}! A ⚡ sudden death round ${state.suddenDeath ? 'goes again' : 'is coming'} to settle it&hellip;`) : ''}
-        ${!showStandings && !state.qMode && !betting && state.status === 'live' && players.length ? `
+        ${!isLobby && !showStandings && !state.qMode && !betting && state.status === 'live' && players.length ? `
           <div class="qb-guess-row">
             ${players.map(p => {
               const sittingOut = state.suddenDeath && (state.sdEligible || []).length && !(state.sdEligible || []).includes(p.id);
@@ -1853,7 +1876,15 @@
   async function toggleStandings(){
     const s = await getGameState();
     s.showStandings = !s.showStandings;
-    if(s.showStandings) s.showPodium = false;
+    if(s.showStandings){ s.showPodium = false; s.showLobby = false; }
+    await saveGameState(s);
+    renderAdmin();
+  }
+
+  async function toggleLobby(){
+    const s = await getGameState();
+    s.showLobby = !s.showLobby;
+    if(s.showLobby){ s.showStandings = false; s.showPodium = false; }
     await saveGameState(s);
     renderAdmin();
   }
@@ -1867,7 +1898,7 @@
       if(tied.length && !confirm(`Top scores are level (${tied.map(p => p.name).join(', ')}). The podium will just pick one of them for 1st. Show it anyway?`)) return;
     }
     s.showPodium = !s.showPodium;
-    if(s.showPodium) s.showStandings = false;
+    if(s.showPodium){ s.showStandings = false; s.showLobby = false; }
     await saveGameState(s);
     renderAdmin();
   }
@@ -2687,6 +2718,7 @@
       <div class="qb-admin-section">
         <h3>🖥️ Projector controls</h3>
         <p class="qb-small" style="margin-top:0;">The projector follows the game on its own; these switch it to the special screens.</p>
+        <button class="qb-btn qb-btn-small ${state.showLobby ? 'qb-btn-gold' : ''}" data-action="toggle-lobby">${state.showLobby ? 'Back to the game screen' : '👋 Show lobby (join QR)'}</button>
         <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Back to the game screen' : '📊 Show score standings'}</button>
         <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Hide the podium' : '🏆 Show podium reveal'}</button>
       </div>
@@ -3147,6 +3179,8 @@
           renderAdmin();
         } else if(action === 'unlock-admin'){
           unlockAdmin();
+        } else if(action === 'toggle-lobby'){
+          toggleLobby();
         } else if(action === 'toggle-standings'){
           toggleStandings();
         } else if(action === 'toggle-podium'){
@@ -3175,6 +3209,15 @@
           formType = ['question', 'text', 'sudden'].includes(t) ? t : 'song';
           // sensible time prefill for the chosen type (typing needs longer); still editable
           formQSeconds = formType === 'text' ? TEXT_SECONDS : QUESTION_SECONDS;
+          // keep the auto-label in step with the section the round now belongs to,
+          // so a sudden death picked from "+ Add a round" isn't left titled "Round 3".
+          // Only touch it if the host hasn't typed their own label.
+          if(formOpen === 'add' && (!formLabel.trim() || /^(Round|Sudden death) \d+$/.test(formLabel.trim()))){
+            const rounds = await getRounds();
+            formLabel = formType === 'sudden'
+              ? 'Sudden death ' + (rounds.filter(r => r.type === 'sudden').length + 1)
+              : 'Round ' + (rounds.filter(r => r.type !== 'sudden').length + 1);
+          }
           renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();
