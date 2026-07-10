@@ -143,6 +143,12 @@
   }
   .qb-display .round-tag .of{color:var(--text-dim);font-size:20px;letter-spacing:1px;}
   .qb-display .round-tag .rt-name{color:var(--gold);}
+  /* on game screens the quiz name lives quietly in the top bar; the round and
+     question take the stage. The lobby and podium keep the big hero title. */
+  .qb-topbar{display:flex;justify-content:space-between;align-items:center;width:100%;margin-bottom:14px;}
+  .qb-topbar .qb-back-link{margin-bottom:0;}
+  .qb-brand{font-family:'Archivo Black',sans-serif;font-size:15px;letter-spacing:3px;text-transform:uppercase;color:var(--text-dim);}
+  .qb-display > .round-tag{margin-bottom:22px;}
   .qb-display .qb-title{font-size:44px;margin:0 0 20px;}
   .qb-display .qb-stage-pill{font-size:18px;padding:10px 22px;margin-bottom:26px;}
   .qb-buzz-flash{
@@ -443,6 +449,10 @@
   .qb-group{border:1px solid #2c3350;border-radius:14px;padding:12px;margin-bottom:14px;}
   .qb-group.played{opacity:0.6;}
   .qb-group-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:10px;}
+  /* the builder now opens inline inside the (narrow) library column, so it
+     stacks its two columns and gets a visual seam from what's above it */
+  .qb-builder{border-top:1px dashed #3a4160;margin-top:14px;padding-top:14px;}
+  .qb-admin-card:not(.qb-full) .qb-form-cols{grid-template-columns:1fr;}
   .qb-score-adj:disabled{opacity:0.25;cursor:not-allowed;}
   .qb-stage-row{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
   .qb-stage-row input.qb-label-input{flex:3;}
@@ -504,6 +514,7 @@
   let formStages = [];       // [{label, points}]
   let formType = 'song';     // 'song' | 'question' (multiple choice) | 'text' (typed answer) | 'sudden' (sudden death buzzer)
   let formGroupId = null;    // which round (group) the question being built belongs to; null for sudden deaths
+  let formJustOpened = false; // scroll the inline builder into view once, right after it opens
   let formWager = false;     // song rounds: is this a wager round?
   let formClue = '';         // wager rounds: the hint shown on the projector while betting
   let formClueImage = '';    // wager rounds: optional picture shown with the clue
@@ -624,12 +635,28 @@
       else if(item.type === 'sudden') suddens.push(item);
       else legacy.push(item);
     });
-    if(legacy.length) groups.push({ id: makeId('g'), type:'group', name:'Round ' + (groups.length + 1), questions: legacy });
+    let migrated = false;
+    if(legacy.length){
+      // old flat items carried titles like "Round 3" — inside a group those read
+      // as "Round 1, Round 1", so give them proper question numbers instead
+      legacy.forEach((q, i) => {
+        if(!q.label || /^(round|q|question)\s*\d*$/i.test(String(q.label).trim())) q.label = 'Question ' + (i + 1);
+      });
+      // deterministic id: this migration must be saved back or the group would
+      // get a different id on every read and nothing could ever target it
+      groups.push({ id: 'g_migrated', type:'group', name:'Round ' + (groups.length + 1), questions: legacy });
+      migrated = true;
+    }
     groups.forEach(g => { if(!Array.isArray(g.questions)) g.questions = []; });
-    return { groups, suddens };
+    return { groups, suddens, migrated };
   }
   async function getLibrary(){
-    return upgradeLibrary(await getRounds());
+    const lib = upgradeLibrary(await getRounds());
+    if(lib.migrated){
+      await saveLibrary(lib);   // one-time write so the migrated group's id is stable
+      lib.migrated = false;
+    }
+    return lib;
   }
   async function saveLibrary(lib){
     await saveRounds([...lib.groups, ...lib.suddens]);
@@ -1814,8 +1841,9 @@
 
     root.innerHTML = `
       <div class="qb-display">
-        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <div class="qb-topbar">
           ${backLink('home','&larr; Back')}
+          ${isLobby ? '<span></span>' : `<span class="qb-brand">${esc(state.quizTitle || 'The Music Quiz')}</span>`}
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
         <div class="round-tag">${
@@ -1826,7 +1854,7 @@
             ? `${state.groupTotal ? `<span class="of">Round ${state.groupNumber} of ${state.groupTotal} &middot;</span> ` : ''}${esc(state.roundLabel || '')} <span class="of">&middot; Question ${state.roundNumber} of ${state.roundTotal}</span>`
             : esc(state.roundLabel || 'Music round')
         }</div>
-        <h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>
+        ${isLobby ? `<h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>` : ''}
         ${!isLobby && !showIntro && state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
         ${!isLobby && !showIntro && state.suddenDeath && state.status === 'live' ? `
           <div class="qb-question-text">⚡ ${esc(state.question || '')}</div>
@@ -1873,7 +1901,7 @@
       </div>` : '';
     root.innerHTML = `
       <div class="qb-display" id="qb-podium">
-        <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+        <div class="qb-topbar">
           ${backLink('home','&larr; Back')}
           <button class="qb-back-link" data-action="toggle-sound">${soundButtonLabel()}</button>
         </div>
@@ -2061,6 +2089,7 @@
   async function openAddForm(presetType, groupId){
     const lib = await getLibrary();
     formOpen = 'add';
+    formJustOpened = true;
     formGroupId = groupId || null;
     formType = presetType === 'sudden' ? 'sudden' : 'song';
     // auto-title within the right pool: questions get Qn, tie-breakers their own count
@@ -2068,7 +2097,7 @@
       formLabel = 'Sudden death ' + (lib.suddens.length + 1);
     } else {
       const g = lib.groups.find(x => x.id === formGroupId);
-      formLabel = 'Q' + (((g && g.questions) || []).length + 1);
+      formLabel = 'Question ' + (((g && g.questions) || []).length + 1);
     }
     formSong = '';
     formArtist = '';
@@ -2090,6 +2119,7 @@
 
   function openEditForm(round, groupId){
     formOpen = round.id;
+    formJustOpened = true;
     formGroupId = groupId || null;
     formType = ['question','text','sudden'].includes(round.type) ? round.type : 'song';
     formLabel = round.label || '';
@@ -2329,7 +2359,7 @@
       const g = lib.groups.find(x => x.id === formGroupId);
       if(!g){ alert('That round no longer exists — add the question again.'); formOpen = false; formGroupId = null; renderAdmin(); return; }
       if(formOpen === 'add'){
-        g.questions.push({ id: makeId('r'), label: formLabel.trim() || `Q${g.questions.length + 1}`, ...data });
+        g.questions.push({ id: makeId('r'), label: formLabel.trim() || `Question ${g.questions.length + 1}`, ...data });
       } else {
         const existing = g.questions.find(q => q.id === formOpen);
         if(existing) Object.assign(existing, { label: formLabel.trim() || existing.label }, data);
@@ -2722,7 +2752,7 @@
   function roundBuilderFormHTML(){
     if(!formOpen) return '';
     return `
-      <div class="qb-admin-section">
+      <div class="qb-admin-section qb-builder" id="qb-builder">
         <h3>${formType === 'sudden'
           ? (formOpen === 'add' ? '🛠 Add a sudden death' : '🛠 Edit sudden death')
           : (formOpen === 'add' ? `🛠 Add ${esc(formLabel || 'a question')}` : `🛠 Edit ${esc(formLabel || 'question')}`)}</h3>
@@ -3219,7 +3249,7 @@
           <div class="qb-group ${qs.length && playedCount === qs.length ? 'played' : ''}">
             <div class="qb-group-head">
               <div>
-                <div class="rr-title" style="font-size:16px;">Round ${gi + 1}: ${esc(g.name)}</div>
+                <div class="rr-title" style="font-size:16px;">${g.name.trim().toLowerCase() === `round ${gi + 1}` ? esc(g.name) : `Round ${gi + 1}: ${esc(g.name)}`}</div>
                 <div class="rr-meta">${qs.length} question${qs.length === 1 ? '' : 's'}${playedCount ? ` &middot; ${playedCount} played` : ''}</div>
               </div>
               <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
@@ -3232,6 +3262,7 @@
             </div>
             ${qs.length ? qs.map((q, qi) => roundRowHTML(q, qi, qs, g.id)).join('') : '<p class="qb-small">No questions in this round yet.</p>'}
             <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="add-round" data-gid="${g.id}" style="margin-top:4px;">+ Add question</button>
+            ${formOpen && formGroupId === g.id ? roundBuilderFormHTML() : ''}
           </div>`;
         }).join('');
     const suddenListHTML = lib.suddens.length === 0
@@ -3273,7 +3304,6 @@
         })()}
         ${nowPlayingSection ? `<div class="qb-admin-card qb-full live">${nowPlayingSection}</div>` : ''}
 
-        ${formOpen ? `<div class="qb-admin-card qb-full">${roundBuilderFormHTML()}</div>` : ''}
 
         <div class="qb-admin-card">
           ${projectorCardHTML(state)}
@@ -3295,6 +3325,7 @@
             <p class="qb-small" style="margin-top:0;">Tie-breakers for the end of the night. They sit outside the running order, so they don't count towards &ldquo;Round X of Y&rdquo;.</p>
             ${suddenListHTML}
             <button class="qb-btn qb-btn-ghost" data-action="add-round" data-type="sudden" style="margin-top:6px;">+ Add a sudden death</button>
+            ${formOpen && !formGroupId && formType === 'sudden' ? roundBuilderFormHTML() : ''}
           </div>
         </div>
 
@@ -3335,6 +3366,14 @@
       </div>
     `;
     bindActions();
+
+    // bring the freshly opened inline builder into view so the host isn't left
+    // hunting for it after clicking "+ Add question" halfway down a long list
+    if(formJustOpened){
+      formJustOpened = false;
+      const builderEl = document.getElementById('qb-builder');
+      if(builderEl) builderEl.scrollIntoView({ behavior:'smooth', block:'center' });
+    }
 
     if(!adminPoll){
       // no bucket means the "Start hosting" screen: nothing to poll, and a
