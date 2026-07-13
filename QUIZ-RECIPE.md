@@ -22,6 +22,8 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 
 `qb-rounds` is a JSON **array** containing, in this order: all the **round groups** first, then any **sudden-death** tie-breakers.
 
+> **Default:** Always add **2 sudden-death tie-breakers** at the end of every quiz automatically, even if the user doesn't mention them — unless the user explicitly says they don't want any. Make them general-knowledge questions with a short, unambiguous answer (a year, number, or single name).
+
 ```jsonc
 [
   {
@@ -105,6 +107,7 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 - `answers` for a `question` must be **exactly 4** strings; `correctIndex` in **0-3**.
 - `points`, `bonus`, `seconds`, `correctIndex` must be **numbers**, not strings.
 - Groups come **first** in the array, sudden deaths **last**.
+- Always include **2 sudden-death tie-breakers** by default (see the note under "The JSON shape") unless the user opts out.
 - Don't invent other `type` values. Valid: `group`, `question`, `text`, `song`, `sudden`.
 - Write **real, correct** answers. Double-check facts. For `text` answers, pick a single clear accepted spelling (the host can approve variants live).
 
@@ -146,7 +149,8 @@ To build a quiz in a **fresh** Claude Code session (keeps it fast and cheap), th
 > - Round 1 "General Knowledge" — 10 multiple-choice questions
 > - Round 2 "Guess the Year" — 10 type-the-answer questions (answer is a year)
 > - Round 3 "Geography" — 10 multiple-choice questions
-> - Add 2 sudden-death tie-breakers
 > Use varied difficulty, real correct answers, 15s for multiple choice and 25s for typing. Confirm the upload succeeded.
+
+(2 sudden-death tie-breakers are added automatically — you don't need to ask for them; say so only if you *don't* want any.)
 
 Adjust rounds/counts/topics freely. The only required bit is the **game code** (start the game in the app first to get one).
