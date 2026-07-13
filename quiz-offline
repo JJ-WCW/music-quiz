@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Take the quiz OFFLINE. The public link https://jj-wcw.github.io/music-quiz/
+# will return 404 until you run ./quiz-online again. Run from the project folder.
+set -e
+REPO="JJ-WCW/music-quiz"
+
+echo "Taking the quiz offline…"
+if gh api -X DELETE "repos/$REPO/pages" >/dev/null 2>&1; then
+  echo "✅ Offline. https://jj-wcw.github.io/music-quiz/ now returns 404 (may take a minute to fully drop)."
+else
+  echo "ℹ️  It was already offline (nothing to disable)."
+fi
