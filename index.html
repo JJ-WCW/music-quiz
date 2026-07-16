@@ -220,7 +220,21 @@
   .qb-admin-card .qb-admin-section{margin-bottom:0;}
   .qb-admin-card .qb-admin-section + .qb-admin-section{margin-top:22px;}
   .qb-admin-card.qb-full{grid-column:1/-1;}
-  .qb-admin-card.live{border:1px solid #3a4160;}
+  /* the live strip sticks to the top of the window so verdict/review buttons
+     never scroll away, and each column scrolls its own content so the host
+     can review answers and load the next question without page-scrolling */
+  .qb-admin-card.live{
+    border:1px solid #3a4160;
+    position:sticky;top:8px;z-index:30;
+    max-height:62vh;overflow-y:auto;
+    box-shadow:0 12px 40px rgba(0,0,0,0.6);
+  }
+  .qb-admin-layout > .qb-admin-card:not(.qb-full){
+    max-height:calc(100vh - 60px);overflow-y:auto;
+    scrollbar-width:thin;
+  }
+  .qb-admin-card::-webkit-scrollbar{width:8px;}
+  .qb-admin-card::-webkit-scrollbar-thumb{background:#3a4160;border-radius:4px;}
   .qb-form-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start;}
   @media(max-width:1100px){.qb-admin-layout{grid-template-columns:repeat(2, minmax(0,1fr));}}
   @media(max-width:740px){
@@ -549,7 +563,7 @@
       groupNumber:0, groupTotal:0, showRoundIntro:null, endOfRound:null,
       lockedOut:[],
       // wager round: a clue for the next song shows on the projector first and
-      // players may bet points on themselves; win the round to double your bet,
+      // players may bet points into a kitty; whoever wins the question takes the
       // otherwise it's gone. Betting is optional, everyone keeps their buzzer.
       wagerActive:false, wagerPhase:'', anteEpoch:'', wagerClue:null, wagerImage:null, bets:{}, betWon:0, betsLost:0,
       // question rounds: multiple choice (qAnswers set) or typed text (textMode)
@@ -1184,7 +1198,7 @@
       const bets = await fetchAntes(state.anteEpoch);
       myBet = bets[myPlayerId] || null;
     }
-    const answering = state.qMode && state.status === 'live';
+    const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     let myAnswer = null, answeredCount = 0;
     if(answering){
       const answers = await fetchAnswers(state.answerEpoch);
@@ -1216,7 +1230,7 @@
       const mine = (state.qResults || []).find(r => r.id === myPlayerId);
       statusLine = `The answer was ${esc(state.textMode ? (state.textAnswer || '') : ((state.qAnswers || [])[state.qCorrect] || ''))}`;
       if(mine && mine.correct){
-        statusSub = `✅ You got it! +${mine.won} points${mine.fastest ? ' — fastest answer, bonus included 🥇' : ''}`;
+        statusSub = `✅ You got it! +${mine.won} points${mine.kitty ? ` — fastest, and you scooped the ${mine.kitty}-point kitty! 🥇💰` : mine.fastest ? ' — fastest answer, bonus included 🥇' : ''}`;
       } else if(mine && mine.answered){
         statusSub = `❌ Not this time${mine.text ? ` — you put “${esc(mine.text)}”` : ''}`;
       } else {
@@ -1226,9 +1240,9 @@
       statusLine = `It was ${esc(state.songTitle || '')}${state.artist ? ` by ${esc(state.artist)}` : ''}`;
       const iBet = (state.bets || {})[myPlayerId] || 0;
       if(state.winnerId === myPlayerId){
-        statusSub = `You got it! +${state.pointsAwarded} points${state.betWon ? ` and your bet doubled (+${state.betWon})` : ''}`;
+        statusSub = `You got it! +${state.pointsAwarded} points${state.betWon ? ` and you scooped the ${state.betWon}-point kitty!` : ''}`;
       } else if(state.winnerId){
-        statusSub = `${state.winnerName || 'Someone'} got it first${iBet ? ` — your ${iBet}-point bet is gone` : ''}`;
+        statusSub = `${state.winnerName || 'Someone'} got it first${iBet ? ` — your ${iBet}-point bet went into their kitty` : ''}`;
       } else {
         statusSub = `Nobody got it that time${iBet ? ` — your ${iBet}-point bet is gone` : ''}`;
       }
@@ -1253,7 +1267,7 @@
         buzzerDisabled = false;
       } else {
         const iStaked = inWagerRound ? ((state.bets || {})[myPlayerId] || 0) : 0;
-        statusLine = iStaked ? `Buzz to double your ${iStaked}-point bet!` : 'Buzz in when you know it!';
+        statusLine = inWagerRound ? `Buzz to win the ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)}-point kitty!` : 'Buzz in when you know it!';
         statusSub = 'Only one guess per layer';
         buzzerDisabled = false;
       }
@@ -1267,10 +1281,10 @@
           <div class="qb-wager-badge">💰 WAGER ROUND</div>
           ${state.wagerClue ? `<div class="qb-status-line" style="font-size:16px;">Clue: ${esc(state.wagerClue)}</div>` : ''}
           ${myBet ? `
-            <div class="qb-status-sub" style="font-size:16px;">You've bet ${myBet.amount} pt${myBet.amount===1?'':'s'} on yourself. Win the round to double it!</div>
+            <div class="qb-status-sub" style="font-size:16px;">You've put ${myBet.amount} pt${myBet.amount===1?'':'s'} in the kitty. Win this and you take the whole pot!</div>
             <button class="qb-btn qb-btn-ghost" data-action="cancel-bet">Withdraw my bet</button>
           ` : `
-            <div class="qb-status-sub" style="font-size:16px;">Reckon you know it from the clue? Bet up to ${MAX_BET} points on yourself &mdash; win the round to double them, lose and they're gone. You're allowed to go into minus points!</div>
+            <div class="qb-status-sub" style="font-size:16px;">Reckon you know it from the clue? Bet up to ${MAX_BET} points into the kitty &mdash; whoever wins this takes the lot. You're allowed to go into minus points!</div>
             <input class="qb-input" id="qb-bet-amount" type="number" inputmode="numeric" min="1" max="${MAX_BET}" placeholder="Points to bet (max ${MAX_BET})" style="text-align:center;" />
             <button class="qb-btn qb-btn-gold" data-action="place-bet">Lock in my bet</button>
             <div class="qb-status-sub">Betting is optional &mdash; you can buzz either way.</div>
@@ -1288,6 +1302,7 @@
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${state.wagerActive ? `<div class="qb-status-sub">💰 Fastest correct answer takes the ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)}-point kitty!</div>` : ''}
           ${myAnswer ? `
             <div class="qb-status-sub">You put: <strong>&ldquo;${esc(myAnswer.text || '')}&rdquo;</strong> &middot; ${answeredCount} answered so far</div>
           ` : `
@@ -1301,6 +1316,7 @@
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${state.wagerActive ? `<div class="qb-status-sub">💰 Fastest correct answer takes the ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)}-point kitty!</div>` : ''}
           ${myAnswer ? `
             <div class="qb-status-sub">Answer locked in &mdash; watch the screen! ${answeredCount} answered so far.</div>
           ` : `
@@ -1604,7 +1620,7 @@
     const tiedAtTop = tiedLeaders(players);
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const bettingAntes = betting ? await fetchAntes(state.anteEpoch) : {};
-    const answering = state.qMode && state.status === 'live';
+    const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     const qAnswersLive = answering ? await fetchAnswers(state.answerEpoch) : {};
     if(seq !== displaySeq) return;
 
@@ -1707,11 +1723,11 @@
         <div class="qb-rules">
           <h3>💰 Wager round rules</h3>
           <ol>
-            <li>Study the clue &mdash; it hints at the next song.</li>
+            <li>Study the clue &mdash; it hints at what's coming next.</li>
             <li>Confident? <strong>Bet up to ${MAX_BET} points on yourself</strong> on your phone, before the song starts. You can even go into <strong>minus points</strong>.</li>
-            <li>The song then plays as a normal round &mdash; buzz, then name the artist <strong>and</strong> the song.</li>
-            <li>Win the round and <strong>your bet is doubled</strong>, on top of the layer points.</li>
-            <li>If someone else wins it &mdash; or nobody does &mdash; <strong>your bet is gone</strong>.</li>
+            <li>When betting closes, the question or song plays <strong>as normal</strong>.</li>
+            <li>All bets pile into one <strong>kitty</strong>. Whoever wins this question <strong>takes the whole kitty</strong>, on top of the normal points.</li>
+            <li>If nobody gets it, <strong>the kitty is lost</strong>. Someone else wins? They pocket your stake.</li>
             <li>Betting is optional: everyone keeps their buzzer either way.</li>
           </ol>
         </div>
@@ -1757,13 +1773,15 @@
           `).join('')}
         </div>
         `}
+        ${state.betWon && state.kittyWinnerName ? `<div class="qb-pot-line">💰 ${esc(state.kittyWinnerName)} scooped the ${state.betWon}-point kitty!</div>`
+          : state.betsLost ? `<div class="qb-pot-line">💰 Nobody got it &mdash; the ${state.betsLost}-point kitty is lost!</div>` : ''}
         <div class="qb-qresults">
           ${answered.map(r => `
             <div class="qb-qresult-row ${r.correct ? 'right' : 'wrong'}">
               <span>${r.correct ? (r.fastest ? '🥇' : '✅') : '❌'}</span>
               <span>${r.avatar || ''} ${esc(r.name || '')}</span>
               ${r.text ? `<span class="qb-small">&ldquo;${esc(r.text)}&rdquo;</span>` : ''}
-              ${r.correct ? `<span class="delta">+${r.won}${r.fastest ? ' fastest!' : ''}</span>` : ''}
+              ${r.correct ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.fastest ? ' fastest!' : ''}</span>` : ''}
               <span class="t">${r.ms ? (r.ms / 1000).toFixed(2) + 's' : ''}</span>
             </div>
           `).join('')}
@@ -1796,7 +1814,7 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💰 Watch for <strong>wager rounds</strong> &mdash; you'll get a clue, then you can bet points on yourself. Win the round to double them!</li>
+            <li>💰 Watch for <strong>wager rounds</strong> &mdash; you'll get a clue, then you can bet points into a kitty. Winner takes the lot!</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
           </ol>
         </div>
@@ -1806,8 +1824,8 @@
       if(state.winnerId){
         winnerLine = `${state.winnerAvatar || ''} ${esc(state.winnerName || '')} got it, +${state.pointsAwarded} points`;
       }
-      const potLine = state.betWon ? `<div class="qb-pot-line">💰 and doubled their bet: +${state.betWon} points!</div>`
-        : state.betsLost ? `<div class="qb-pot-line">💰 ${state.betsLost} point${state.betsLost===1?'':'s'} of bets lost to the void</div>` : '';
+      const potLine = state.betWon ? `<div class="qb-pot-line">💰 and scooped the ${state.betWon}-point kitty!</div>`
+        : state.betsLost ? `<div class="qb-pot-line">💰 Nobody got it &mdash; the ${state.betsLost}-point kitty is lost!</div>` : '';
       centre = `
         <div class="qb-reveal-box">
           <div class="qb-small">The answer was</div>
@@ -2293,6 +2311,16 @@
 
   async function saveRoundForm(){
     readFormFromDOM();
+    // any question type (except sudden death) can be a wager round
+    if(formType !== 'sudden' && formWager && !formClue.trim()){
+      alert('Give the wager round a clue — that is what people bet on.');
+      return;
+    }
+    const wagerBits = formType === 'sudden' ? {} : {
+      isWager: formWager,
+      wagerClue: formClue.trim(),
+      wagerImage: formClueImage.trim()
+    };
     let data;
     if(formType === 'question'){
       const q = formQuestion.trim();
@@ -2306,7 +2334,8 @@
         correctIndex: formCorrect,
         points: formQPoints,
         bonus: formQBonus,
-        seconds: formQSeconds
+        seconds: formQSeconds,
+        ...wagerBits
       };
     } else if(formType === 'text'){
       const q = formQuestion.trim();
@@ -2319,7 +2348,8 @@
         textAnswer: formTextAnswer.trim(),
         points: formQPoints,
         bonus: formQBonus,
-        seconds: formQSeconds
+        seconds: formQSeconds,
+        ...wagerBits
       };
     } else if(formType === 'sudden'){
       const q = formQuestion.trim();
@@ -2335,15 +2365,12 @@
       const song = formSong.trim();
       if(!song){ alert('Enter the song title first.'); return; }
       if(formStages.some(s => !s.label.trim())){ alert('Give every layer a label, e.g. "Drums only".'); return; }
-      if(formWager && !formClue.trim()){ alert('Give the wager round a clue — that is what people bet on.'); return; }
       data = {
         type: 'song',
         songTitle: song,
         artist: formArtist.trim(),
         stages: formStages.map(s => ({label:s.label.trim(), points:s.points})),
-        isWager: formWager,
-        wagerClue: formClue.trim(),
-        wagerImage: formClueImage.trim()
+        ...wagerBits
       };
     }
 
@@ -2420,8 +2447,19 @@
       s.qPoints = r.points || 1;
       s.qBonus = Number.isInteger(r.bonus) ? r.bonus : 0;
       s.qSeconds = r.seconds || (r.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS);
-      s.answerEpoch = makeId('q');
       s.buzzEpoch = '';   // no buzzing on these rounds
+      if(r.isWager){
+        // betting first: only the clue shows; the question and its timer stay
+        // hidden until the host closes the kitty (which mints answerEpoch)
+        s.wagerActive = true;
+        s.wagerPhase = 'betting';
+        s.wagerClue = r.wagerClue || '';
+        s.wagerImage = r.wagerImage || null;
+        s.anteEpoch = makeId('a');
+        s.answerEpoch = '';
+      } else {
+        s.answerEpoch = makeId('q');
+      }
     } else if(r.type === 'sudden'){
       // fastest finger: the question shows on the projector, normal buzz rules —
       // except when the top of the board is tied, in which case only the tied
@@ -2480,7 +2518,10 @@
     await savePlayers(players);
     s.bets = betMap;
     s.wagerPhase = 'playing';
-    s.buzzEpoch = makeId('e');
+    // song wagers open the buzzers; question/text wagers reveal the question
+    // and start its answer window instead
+    if(s.qMode) s.answerEpoch = makeId('q');
+    else s.buzzEpoch = makeId('e');
     await saveGameState(s);
     await stampBuzzersOpened();
     renderAdmin();
@@ -2549,13 +2590,13 @@
     const stage = s.stages[s.stageIndex];
     let points = stage ? stage.points : 0;
     if(half) points = Math.ceil(points / 2);
-    // wager winner gets their stake back doubled; everyone else's bets stay lost
-    const myStake = s.wagerActive ? ((s.bets || {})[buzz.id] || 0) : 0;
-    const betWon = myStake * 2;
+    // wager rounds are winner-takes-all: the round winner scoops the whole
+    // kitty (everyone's stakes, including their own if they bet)
+    const kitty = s.wagerActive ? Object.values(s.bets || {}).reduce((t, n) => t + n, 0) : 0;
     const players = await getPlayers();
     const p = players.find(pl => pl.id === buzz.id);
     if(p){
-      p.score = (p.score || 0) + points + betWon;
+      p.score = (p.score || 0) + points + kitty;
       recordReaction(p, buzz, s);
     }
     await savePlayers(players);
@@ -2565,14 +2606,29 @@
     s.winnerName = buzz.name;
     s.winnerAvatar = buzz.avatar;
     s.pointsAwarded = points;
-    s.betWon = betWon;
-    if(s.wagerActive){
-      s.betsLost = Object.entries(s.bets || {}).filter(([id]) => id !== buzz.id).reduce((t, [, n]) => t + n, 0);
-      s.wagerActive = false;
-    }
+    s.betWon = kitty;
+    if(s.wagerActive){ s.betsLost = 0; s.wagerActive = false; }
     await saveGameState(s);
     scheduleEndOfRoundStandings(s);
     renderAdmin();
+  }
+
+  // wager question rounds: the fastest correct answer takes the whole kitty;
+  // if nobody got it, every stake is lost
+  function settleKitty(s, rightOnes, players){
+    if(!s.wagerActive) return;
+    const kitty = Object.values(s.bets || {}).reduce((t, n) => t + n, 0);
+    if(rightOnes.length && kitty){
+      const w = rightOnes[0];
+      w.kitty = kitty;
+      const p = players.find(pl => pl.id === w.id);
+      if(p) p.score = (p.score || 0) + kitty;
+      s.betWon = kitty;
+      s.kittyWinnerName = w.name || '';
+    } else if(kitty){
+      s.betsLost = kitty;
+    }
+    s.wagerActive = false;
   }
 
   // ---------- question round scoring ----------
@@ -2607,6 +2663,7 @@
       const p = players.find(pl => pl.id === r.id);
       if(p) p.score = (p.score || 0) + won;
     });
+    settleKitty(s, rightOnes, players);
     await savePlayers(players);
     s.qResults = results;
     s.status = 'reveal';
@@ -2696,6 +2753,7 @@
       const p = players.find(pl => pl.id === r.id);
       if(p) p.score = (p.score || 0) + won;
     });
+    settleKitty(s, rightOnes, players);
     await savePlayers(players);
     s.qResults = results;
     s.reviewing = false;
@@ -2848,15 +2906,6 @@
             <input class="qb-input" id="qb-round-song" placeholder="e.g. Don't Stop Me Now" value="${esc(formSong)}" />
             <label class="qb-label">Artist</label>
             <input class="qb-input" id="qb-round-artist" placeholder="e.g. Queen" value="${esc(formArtist)}" />
-            <label class="qb-wager-toggle">
-              <input type="checkbox" id="qb-round-wager" data-action="toggle-wager" ${formWager ? 'checked' : ''} />
-              <span>💰 Make this a <strong>wager round</strong> (a clue shows first and players can bet points on themselves)</span>
-            </label>
-            ${formWager ? `
-              <label class="qb-label">The clue shown while people bet</label>
-              <input class="qb-input" id="qb-round-clue" placeholder="e.g. A one-hit wonder from 1997 with a colour in the title" value="${esc(formClue)}" />
-              <p class="qb-small" style="margin:0 0 16px;">Win the round to double your bet; otherwise it's gone. Betting is optional &mdash; everyone keeps their buzzer either way.</p>
-            ` : ''}
           </div>
           <div>
             <label class="qb-label">Layers, from hardest to easiest</label>
@@ -2870,6 +2919,19 @@
             <button class="qb-btn qb-btn-ghost qb-btn-small" style="margin-bottom:16px;" data-action="add-stage">+ Add another layer</button>
           </div>
         </div>
+        `}
+        ${formType === 'sudden' ? '' : `
+        <label class="qb-wager-toggle">
+          <input type="checkbox" id="qb-round-wager" data-action="toggle-wager" ${formWager ? 'checked' : ''} />
+          <span>💰 Make this a <strong>wager round</strong> &mdash; a clue shows first, players bet into a kitty, and the winner takes the lot</span>
+        </label>
+        ${formWager ? `
+          <label class="qb-label">The clue shown while people bet</label>
+          <input class="qb-input" id="qb-round-clue" placeholder="e.g. This one takes you back to summer 1997…" value="${esc(formClue)}" />
+          <label class="qb-label">Clue image (optional &mdash; direct picture URL)</label>
+          <input class="qb-input" id="qb-round-clue-image" placeholder="https://…" value="${esc(formClueImage)}" />
+          <p class="qb-small" style="margin:0 0 16px;">Bets go into a kitty (max ${MAX_BET} points each, going into the minus is allowed). Whoever wins this question takes the whole kitty. Betting is optional &mdash; everyone still plays.</p>
+        ` : ''}
         `}
         <div class="qb-row-2" style="max-width:440px;">
           <button class="qb-btn qb-btn-ghost" data-action="cancel-form">Cancel</button>
@@ -3080,7 +3142,7 @@
 
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const liveAntes = betting ? await fetchAntes(state.anteEpoch) : {};
-    const answering = state.qMode && state.status === 'live';
+    const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     const liveAnswers = answering ? await fetchAnswers(state.answerEpoch) : {};
     if(seq !== adminSeq) return;
 
@@ -3101,13 +3163,29 @@
     }
     if(!state.reviewing && reviewMarks && !state.qMode) reviewMarks = null;
 
+    // shared betting panel: any question type can be a wager round
+    let bettingPanel = '';
+    if(betting){
+      const inList = Object.values(liveAntes).filter(a => a && a.id);
+      bettingPanel = `
+        <div class="qb-buzzed-banner">
+          <div class="qb-small">💰 WAGER ROUND &middot; betting open &middot; the clue is on the projector, the question is still hidden</div>
+          <div class="who">${sumAntes(liveAntes)} pts in the kitty</div>
+          <div class="qb-small" style="margin-bottom:12px;">${inList.length ? inList.map(a => `${a.avatar || ''} ${esc(a.name || '')} (${a.amount})`).join(', ') : 'No bets yet'}</div>
+          <button class="qb-btn qb-btn-gold" data-action="close-betting">${state.qMode ? 'Close betting &amp; reveal the question' : 'Close betting &amp; start the song'}</button>
+        </div>
+      `;
+    }
+
     let nowPlayingSection = '';
     if(state.roundId && state.qMode){
       const answeredList = Object.values(liveAnswers).filter(a => a && a.id);
       const typeTag = state.textMode ? '⌨️ type the answer' : '❓ multiple choice';
       const correctShown = state.textMode ? (state.textAnswer || '') : ((state.qAnswers || [])[state.qCorrect] || '');
       let phasePanel;
-      if(state.status !== 'live'){
+      if(betting){
+        phasePanel = bettingPanel;
+      } else if(state.status !== 'live'){
         phasePanel = `<p class="qb-small">Scored &amp; revealed. Load the next round when you're ready.</p>`;
       } else if(state.reviewing){
         phasePanel = `
@@ -3147,19 +3225,6 @@
     if(state.roundId && !state.qMode){
       const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
       const isLastStage = state.stageIndex >= state.stages.length - 1;
-
-      let bettingPanel = '';
-      if(betting){
-        const inList = Object.values(liveAntes).filter(a => a && a.id);
-        bettingPanel = `
-          <div class="qb-buzzed-banner">
-            <div class="qb-small">💰 WAGER ROUND &middot; betting open &middot; clue is on the projector</div>
-            <div class="who">${sumAntes(liveAntes)} pts staked</div>
-            <div class="qb-small" style="margin-bottom:12px;">${inList.length ? inList.map(a => `${a.avatar || ''} ${esc(a.name || '')} (${a.amount})`).join(', ') : 'No bets yet'}</div>
-            <button class="qb-btn qb-btn-gold" data-action="close-betting">Close betting &amp; start the song</button>
-          </div>
-        `;
-      }
 
       let buzzedSection = '';
       if(state.status === 'live' && !betting && liveBuzz){
@@ -3210,10 +3275,11 @@
     }
 
     const typeBadge = r => {
-      if(r.type === 'question') return '<span class="qb-wager-tag" style="background:#2e86de;color:#fff;">❓ CHOICE</span>';
-      if(r.type === 'text') return '<span class="qb-wager-tag" style="background:#4cc38a;color:#12141c;">⌨️ TYPED</span>';
+      const wager = r.isWager ? ' <span class="qb-wager-tag">💰 WAGER</span>' : '';
+      if(r.type === 'question') return '<span class="qb-wager-tag" style="background:#2e86de;color:#fff;">❓ CHOICE</span>' + wager;
+      if(r.type === 'text') return '<span class="qb-wager-tag" style="background:#4cc38a;color:#12141c;">⌨️ TYPED</span>' + wager;
       if(r.type === 'sudden') return '<span class="qb-wager-tag" style="background:#e63946;color:#fff;">⚡ SUDDEN DEATH</span>';
-      return r.isWager ? '<span class="qb-wager-tag">💰 WAGER</span>' : '';
+      return wager;
     };
     const roundMeta = r => {
       if(r.type === 'question') return `${esc(r.question || '')} &middot; ${r.points} pts +${r.bonus} fastest &middot; ${r.seconds || QUESTION_SECONDS}s`;

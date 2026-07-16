@@ -55,6 +55,8 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 }
 ```
 
+> **Wagers work on ANY question type** (multiple choice, text, or song — not sudden death). Add these three fields to any question to make it a betting round: `"isWager": true, "wagerClue": "a teasing hint shown BEFORE the question is revealed", "wagerImage": ""` (optional picture). Players bet points into a kitty off the clue alone, then the question plays as normal and **whoever wins it takes the whole kitty**. Use sparingly — one or two per quiz.
+
 **Type-the-answer** — everyone types a free-text answer; the host approves near-misses:
 ```jsonc
 {
@@ -83,9 +85,9 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
     { "label": "2 Track Layers", "points": 4 },
     { "label": "3 Track Layers", "points": 3 }
   ],
-  "isWager": false,             // set true for a betting round; then also add:
-  "wagerClue": "",              // clue shown while players bet (required if isWager)
-  "wagerImage": ""              // optional picture with the clue
+  "isWager": false,             // wager fields work here too (see the note above)
+  "wagerClue": "",
+  "wagerImage": ""
 }
 ```
 
