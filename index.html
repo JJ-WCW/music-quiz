@@ -420,8 +420,42 @@
   .qb-pot span{color:var(--gold);}
   .qb-wager-in{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;color:var(--text-dim);}
   .qb-pot-line{color:var(--gold);font-size:22px;font-weight:700;margin-top:12px;}
+  .qb-pot-line.roll{color:#4cc38a;}
   .qb-pot-pill{display:inline-block;background:var(--gold);color:#1b1f2e;font-weight:800;padding:8px 20px;border-radius:20px;font-size:20px;margin-bottom:14px;}
   .qb-clue-box{background:var(--panel-light);border:2px dashed var(--gold);border-radius:16px;padding:20px 26px;font-size:24px;max-width:720px;margin:0 auto 22px;}
+  /* a kitty nobody won rolls into the next wager — worth a bit of noise */
+  .qb-carry-banner{
+    display:inline-block;background:#4cc38a;color:#12141c;font-weight:800;
+    padding:8px 22px;border-radius:20px;font-size:20px;margin:10px 0;
+  }
+  .qb-carry-note{
+    background:rgba(76,195,138,0.14);border:1px dashed #4cc38a;color:#4cc38a;
+    border-radius:12px;padding:8px 14px;font-size:14px;font-weight:700;
+  }
+  .qb-lobby-chip.out{opacity:0.5;}
+  /* betting is done: the host can stop waiting and get on with it */
+  .qb-buzzed-banner.ready{border-color:#4cc38a;}
+
+  /* slider (slide-to-guess) rounds */
+  .qb-slider-readout{
+    font-family:'Archivo Black',sans-serif;font-size:30px;color:var(--gold);
+    line-height:1.1;text-align:center;
+  }
+  .qb-slider{
+    -webkit-appearance:none;appearance:none;width:100%;max-width:340px;height:14px;
+    border-radius:8px;background:linear-gradient(90deg,#2e86de,var(--gold));outline:none;
+  }
+  .qb-slider::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:38px;height:38px;border-radius:50%;
+    background:#fff;border:3px solid var(--gold);cursor:pointer;
+  }
+  .qb-slider::-moz-range-thumb{
+    width:38px;height:38px;border-radius:50%;background:#fff;border:3px solid var(--gold);cursor:pointer;
+  }
+  .qb-slider-ends{
+    display:flex;justify-content:space-between;width:100%;max-width:340px;
+    font-size:12px;color:var(--text-dim);
+  }
 
   /* multiple-choice question rounds */
   .qb-qtype-row{display:flex;gap:8px;margin-bottom:14px;}
@@ -429,6 +463,8 @@
   .qb-question-text{font-family:'Archivo Black',sans-serif;font-size:34px;margin-bottom:18px;}
   /* white backing so transparent PNGs (logos) stay visible on the dark stage */
   .qb-qimage{max-width:min(440px,80vw);max-height:300px;border-radius:14px;margin:0 auto 18px;display:block;background:#fff;}
+  /* same clue on the phone, sized so the answer controls still fit under it */
+  .qb-qimage.phone{max-width:100%;max-height:34vh;margin-bottom:0;}
   .qb-answer-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:900px;margin:0 auto 20px;}
   .qb-answer-sq{
     border-radius:14px;padding:24px 18px;font-size:23px;font-weight:800;color:#fff;
@@ -544,6 +580,11 @@
   let formCorrect = 0;
   let formTextAnswer = '';   // text rounds: what the host will accept (case doesn't matter)
   let formSDAnswer = '';     // sudden death: the answer only the host sees
+  // slider rounds: the range players drag across, and the number they're after
+  let formSliderMin = 0, formSliderMax = 100, formSliderAnswer = 50;
+  let formSliderStep = 0;    // 0 = derive it from the range (see niceStep)
+  let formSliderBand = 0;    // 0 = pure nearest-wins; else everyone within ±band scores
+  let formSliderUnit = '';
   let formQPoints = 3;
   let formQBonus = 1;
   let formQSeconds = 15;     // per-round answer time (QUESTION_SECONDS is declared further down)
@@ -572,9 +613,20 @@
       // players may bet points into a kitty; whoever wins the question takes the
       // otherwise it's gone. Betting is optional, everyone keeps their buzzer.
       wagerActive:false, wagerPhase:'', anteEpoch:'', wagerClue:null, wagerImage:null, bets:{}, betWon:0, betsLost:0,
-      // question rounds: multiple choice (qAnswers set) or typed text (textMode)
-      qMode:false, textMode:false, reviewing:false, question:null, qImage:null, qAnswers:[], qCorrect:0,
+      // an unwon kitty isn't burned: it rolls into the next wager round and keeps
+      // growing until somebody finally wins it. Survives round loads (see
+      // loadRoundToPlay) exactly like quizTitle does. kittyRolled is just the
+      // "…and it rolls over!" note for the reveal screen.
+      carryKitty:0, kittyRolled:0,
+      // question rounds: multiple choice (qAnswers set), typed text (textMode)
+      // or a slide-to-guess number (sliderMode). All three share qMode's
+      // everyone-answers-on-the-clock flow.
+      qMode:false, textMode:false, sliderMode:false, reviewing:false, question:null, qImage:null, qAnswers:[], qCorrect:0,
       textAnswer:null, qPoints:0, qBonus:0, qSeconds:0, answerEpoch:'', qResults:[], pendingAnswers:[],
+      // slider rounds: players drag between min and max in steps of sliderStep.
+      // Nearest guess wins; sliderBand (optional) lets everyone within ±band
+      // score too; landing on the closest reachable notch is a bullseye.
+      sliderMin:0, sliderMax:0, sliderStep:1, sliderAnswer:0, sliderBand:0, sliderUnit:'',
       // sudden death: fastest finger on the buzzer, question shown on the projector.
       // sdEligible restricts the buzzers to the tied leaders when a tie exists
       suddenDeath:false, sdEligible:[],
@@ -699,7 +751,7 @@
   const ANSWER_SECONDS = 15;    // to answer after buzzing on a song round
   const QUESTION_SECONDS = 15;  // to pick an answer on a multiple-choice question
   const TEXT_SECONDS = 25;      // to type an answer on a text round
-  const MAX_BET = 10;           // wager cap; bets may push a score negative
+  const MAX_BET = 100;          // wager cap; bets may push a score negative
   const ANSWER_COLORS = ['#e63946', '#2e86de', '#f4b942', '#4cc38a'];
   const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
   function buzzUrl(epoch, playerId){
@@ -754,6 +806,52 @@
   }
   function sumAntes(antes){
     return Object.values(antes || {}).reduce((t, a) => t + (a && a.amount ? a.amount : 0), 0);
+  }
+  // a player has "decided" once they've either staked something or tapped "no bet";
+  // the host waits on this, not on the clock, before closing the kitty
+  function antesDecided(antes){
+    return Object.values(antes || {}).filter(a => a && a.id && (a.amount > 0 || a.pass)).length;
+  }
+  // What's actually on the table: this round's stakes plus anything that rolled
+  // over from wager rounds nobody won.
+  function kittyTotal(s){
+    return Object.values(s.bets || {}).reduce((t, n) => t + n, 0) + (s.carryKitty || 0);
+  }
+
+  // ---------- slider rounds ----------
+  // The host gives a min, a max and the true answer; players drag to a guess.
+  // The step is derived from the range so the slider always has roughly 50-200
+  // notches: a 2m-10m range slides in 100,000s, while 1990-2025 slides in 1s.
+  // Snapped to a 1/2/5 x 10^n ladder so the numbers under the thumb stay round.
+  function niceStep(range){
+    if(!(range > 0)) return 1;
+    const raw = range / 100;
+    if(raw <= 1) return 1;   // small ranges (years, ages) stay whole numbers
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const norm = raw / mag;
+    return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  }
+  function sliderStepFor(r){
+    const step = Number(r.sliderStep) || 0;
+    return step > 0 ? step : niceStep((Number(r.sliderMax) || 0) - (Number(r.sliderMin) || 0));
+  }
+  // the closest the slider can physically get to the answer is half a step, so
+  // anyone that close counts as a bullseye — with a step of 1 this is an exact hit
+  function isBullseye(dist, step){
+    return dist <= (step || 1) / 2;
+  }
+  // Thousands separators help on "160,000,000" and ruin "2,007", so they're
+  // decided per question from the top of its range: anything under 10k is the
+  // sort of number (a year, a percentage, an age) you write bare.
+  function groupNums(sliderMax){
+    return Math.abs(Number(sliderMax) || 0) >= 10000;
+  }
+  function fmtNum(n, group){
+    const v = Number(n) || 0;
+    return group === false ? String(v) : v.toLocaleString('en-GB');
+  }
+  function fmtGuess(n, unit, group){
+    return fmtNum(n, group) + (unit ? ' ' + unit : '');
   }
   // ---------- multiple-choice answers ----------
   // every player answers (no lockout), each writing only their own key with a
@@ -1153,6 +1251,11 @@
   let playerPoll = null;
   let prevPlayerSound = null;
   let playerSeq = 0;   // stale-render ticket, same idea as the display's
+  // The 800ms poll used to rebuild the whole phone screen, which restarts any
+  // <img> load and throws away a half-dragged slider. So each render fingerprints
+  // everything that decides the *shape* of the screen; while that fingerprint
+  // holds we patch the handful of live numbers in place and leave the DOM alone.
+  let prevPlayerShape = null;
   async function renderPlayer(){
     if(!myPlayerId){
       const resumed = await resumeStoredPlayer();
@@ -1199,10 +1302,12 @@
     const currentStage = (state.stages && state.stages[state.stageIndex]) || null;
     const betting = state.wagerActive && state.wagerPhase === 'betting';
     const inWagerRound = state.wagerActive && state.wagerPhase === 'playing';
-    let myBet = null;
+    let myBet = null, bettingPot = 0, decidedCount = 0;
     if(betting){
       const bets = await fetchAntes(state.anteEpoch);
       myBet = bets[myPlayerId] || null;
+      bettingPot = sumAntes(bets) + (state.carryKitty || 0);
+      decidedCount = antesDecided(bets);
     }
     const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     let myAnswer = null, answeredCount = 0;
@@ -1212,6 +1317,7 @@
       answeredCount = Object.values(answers).filter(a => a && a.id).length;
     }
     if(seq !== playerSeq) return;
+    const pot = kittyTotal(state);
 
     // phones only make sound for things that happened to *this* player;
     // the room-wide sounds come from the display
@@ -1234,9 +1340,15 @@
       statusSub = '';
     } else if(state.status === 'reveal' && state.qMode){
       const mine = (state.qResults || []).find(r => r.id === myPlayerId);
-      statusLine = `The answer was ${esc(state.textMode ? (state.textAnswer || '') : ((state.qAnswers || [])[state.qCorrect] || ''))}`;
+      const shown = state.sliderMode ? fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax))
+        : state.textMode ? (state.textAnswer || '')
+        : ((state.qAnswers || [])[state.qCorrect] || '');
+      statusLine = `The answer was ${esc(shown)}`;
       if(mine && mine.correct){
-        statusSub = `✅ You got it! +${mine.won} points${mine.kitty ? ` — fastest, and you scooped the ${mine.kitty}-point kitty! 🥇💰` : mine.fastest ? ' — fastest answer, bonus included 🥇' : ''}`;
+        const why = mine.kitty ? ` — and you scooped the ${mine.kitty}-point kitty! 💰`
+          : mine.bullseye ? ' — bullseye! 🎯'
+          : mine.fastest ? ' — fastest answer, bonus included 🥇' : '';
+        statusSub = `✅ You got it! +${mine.won} points${why}`;
       } else if(mine && mine.answered){
         statusSub = `❌ Not this time${mine.text ? ` — you put “${esc(mine.text)}”` : ''}`;
       } else {
@@ -1250,7 +1362,7 @@
       } else if(state.winnerId){
         statusSub = `${state.winnerName || 'Someone'} got it first${iBet ? ` — your ${iBet}-point bet went into their kitty` : ''}`;
       } else {
-        statusSub = `Nobody got it that time${iBet ? ` — your ${iBet}-point bet is gone` : ''}`;
+        statusSub = `Nobody got it that time${iBet ? ` — your ${iBet}-point bet rolls into the next kitty` : ''}`;
       }
     } else if(state.status === 'live'){
       stagePill = currentStage ? `<div class="qb-stage-pill">${esc(currentStage.label)} &middot; ${currentStage.points} pt${currentStage.points===1?'':'s'}</div>` : '';
@@ -1272,12 +1384,18 @@
         statusSub = esc(state.question || '');
         buzzerDisabled = false;
       } else {
-        const iStaked = inWagerRound ? ((state.bets || {})[myPlayerId] || 0) : 0;
-        statusLine = inWagerRound ? `Buzz to win the ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)}-point kitty!` : 'Buzz in when you know it!';
+        statusLine = inWagerRound ? `Buzz to win the ${pot}-point kitty!` : 'Buzz in when you know it!';
         statusSub = 'Only one guess per layer';
         buzzerDisabled = false;
       }
     }
+
+    // the clue picture belongs on the phone as much as the projector — people
+    // shouldn't have to crane at the telly to see what they're answering
+    const qImageHTML = state.qImage
+      ? `<img class="qb-qimage phone" src="${esc(state.qImage)}" alt="clue" onerror="this.style.display='none'" />` : '';
+    const kittyNoteHTML = state.wagerActive
+      ? `<div class="qb-status-sub">💰 <span id="qb-p-kitty">${pot}</span>-point kitty to whoever wins this!</div>` : '';
 
     // betting and question rounds replace the buzzer with their own controls
     let centreHTML;
@@ -1285,15 +1403,22 @@
       centreHTML = `
         <div class="qb-buzzer-wrap">
           <div class="qb-wager-badge">💰 WAGER ROUND</div>
+          ${state.carryKitty ? `<div class="qb-carry-note">🎉 ${state.carryKitty} points rolled over from the last wager &mdash; they're already in the pot!</div>` : ''}
           ${state.wagerClue ? `<div class="qb-status-line" style="font-size:16px;">Clue: ${esc(state.wagerClue)}</div>` : ''}
-          ${myBet ? `
+          ${state.wagerImage ? `<img class="qb-qimage phone" src="${esc(state.wagerImage)}" alt="clue" onerror="this.style.display='none'" />` : ''}
+          <div class="qb-status-sub">Pot so far: <strong id="qb-p-pot">${bettingPot}</strong> pts &middot; <span id="qb-p-decided">${decidedCount} of ${players.length}</span> decided</div>
+          ${myBet && myBet.pass ? `
+            <div class="qb-status-sub" style="font-size:16px;">🚫 You're sitting this bet out &mdash; no points at risk. You still play the question as normal!</div>
+            <button class="qb-btn qb-btn-ghost" data-action="cancel-bet">Actually, let me bet</button>
+          ` : myBet ? `
             <div class="qb-status-sub" style="font-size:16px;">You've put ${myBet.amount} pt${myBet.amount===1?'':'s'} in the kitty. Win this and you take the whole pot!</div>
             <button class="qb-btn qb-btn-ghost" data-action="cancel-bet">Withdraw my bet</button>
           ` : `
             <div class="qb-status-sub" style="font-size:16px;">Reckon you know it from the clue? Bet up to ${MAX_BET} points into the kitty &mdash; whoever wins this takes the lot. You're allowed to go into minus points!</div>
             <input class="qb-input" id="qb-bet-amount" type="number" inputmode="numeric" min="1" max="${MAX_BET}" placeholder="Points to bet (max ${MAX_BET})" style="text-align:center;" />
             <button class="qb-btn qb-btn-gold" data-action="place-bet">Lock in my bet</button>
-            <div class="qb-status-sub">Betting is optional &mdash; you can buzz either way.</div>
+            <button class="qb-btn qb-btn-ghost" data-action="pass-bet">🚫 No bet &mdash; I'm out</button>
+            <div class="qb-status-sub">Betting is optional &mdash; you play the question either way. Tap <strong>No bet</strong> so the host knows not to wait for you.</div>
           `}
         </div>
       `;
@@ -1304,13 +1429,38 @@
           <div class="qb-status-sub">The host is checking the answers&hellip;</div>
         </div>
       `;
+    } else if(answering && state.sliderMode){
+      const step = state.sliderStep || 1;
+      const mid = state.sliderMin + Math.round(((state.sliderMax - state.sliderMin) / 2) / step) * step;
+      const value = myAnswer && Number.isFinite(myAnswer.value) ? myAnswer.value : mid;
+      centreHTML = `
+        <div class="qb-buzzer-wrap" style="gap:12px;">
+          <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${qImageHTML}
+          ${kittyNoteHTML}
+          <div class="qb-slider-readout" id="qb-slider-val">${esc(fmtGuess(value, state.sliderUnit, groupNums(state.sliderMax)))}</div>
+          <input class="qb-slider" id="qb-slider" type="range"
+            min="${state.sliderMin}" max="${state.sliderMax}" step="${step}" value="${value}" />
+          <div class="qb-slider-ends">
+            <span>${esc(fmtNum(state.sliderMin, groupNums(state.sliderMax)))}</span>
+            <span>${esc(fmtNum(state.sliderMax, groupNums(state.sliderMax)))}</span>
+          </div>
+          ${myAnswer ? `
+            <div class="qb-status-sub">Guess locked in &mdash; <span id="qb-p-answered">${answeredCount} guessed so far</span>. You can still slide and re-lock until time's up.</div>
+          ` : `
+            <div class="qb-status-sub">Slide to your guess, then lock it in. Closest guess wins &mdash; nail it exactly for a bonus 🎯</div>
+          `}
+          <button class="qb-btn qb-btn-gold" data-action="answer-slider" style="max-width:340px;">${myAnswer ? 'Change my guess' : 'Lock it in'}</button>
+        </div>
+      `;
     } else if(answering && state.textMode){
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
-          ${state.wagerActive ? `<div class="qb-status-sub">💰 Fastest correct answer takes the ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)}-point kitty!</div>` : ''}
+          ${qImageHTML}
+          ${kittyNoteHTML}
           ${myAnswer ? `
-            <div class="qb-status-sub">You put: <strong>&ldquo;${esc(myAnswer.text || '')}&rdquo;</strong> &middot; ${answeredCount} answered so far</div>
+            <div class="qb-status-sub">You put: <strong>&ldquo;${esc(myAnswer.text || '')}&rdquo;</strong> &middot; <span id="qb-p-answered">${answeredCount} answered so far</span></div>
           ` : `
             <div class="qb-status-sub">Type your answer &mdash; spelling doesn't have to be perfect, the host has the final say.</div>
           `}
@@ -1322,9 +1472,10 @@
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
-          ${state.wagerActive ? `<div class="qb-status-sub">💰 Fastest correct answer takes the ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)}-point kitty!</div>` : ''}
+          ${qImageHTML}
+          ${kittyNoteHTML}
           ${myAnswer ? `
-            <div class="qb-status-sub">Answer locked in &mdash; watch the screen! ${answeredCount} answered so far.</div>
+            <div class="qb-status-sub">Answer locked in &mdash; watch the screen! <span id="qb-p-answered">${answeredCount} answered so far.</span></div>
           ` : `
             <div class="qb-status-sub">Tap the colour that matches the right answer on the screen &mdash; fast!</div>
           `}
@@ -1349,17 +1500,43 @@
       `;
     }
 
+    // Everything that decides the *structure* of what's on screen. While this
+    // holds steady, a rebuild would gain nothing and cost us the clue image (its
+    // load restarts from scratch) and any half-dragged slider, so we patch instead.
+    const shape = JSON.stringify([
+      state.status, state.qMode, state.textMode, state.sliderMode, state.reviewing,
+      state.answerEpoch, state.anteEpoch, state.buzzEpoch, state.wagerActive, state.wagerPhase,
+      state.question, state.qImage, state.qAnswers, state.wagerClue, state.wagerImage, state.carryKitty,
+      state.sliderMin, state.sliderMax, state.sliderStep, state.sliderUnit,
+      myBet ? [myBet.amount, !!myBet.pass] : null,
+      myAnswer ? [myAnswer.choice, myAnswer.text, myAnswer.value] : null,
+      myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length
+    ]);
+    if(prevPlayerShape === shape && root.querySelector('.qb-card')){
+      const set = (id, text) => { const el = document.getElementById(id); if(el) el.textContent = text; };
+      set('qb-p-score', `${myScore} pts`);
+      set('qb-p-kitty', pot);
+      set('qb-p-pot', bettingPot);
+      set('qb-p-decided', `${decidedCount} of ${players.length}`);
+      const answeredEl = document.getElementById('qb-p-answered');
+      if(answeredEl) answeredEl.textContent = `${answeredCount} ${state.sliderMode ? 'guessed' : 'answered'} so far`;
+      const sb = document.getElementById('qb-p-scoreboard');
+      if(sb) sb.innerHTML = scoreboardHTML(players, false);
+      return;
+    }
+    prevPlayerShape = shape;
+
     root.innerHTML = `
       <div class="qb-card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
           <span style="font-weight:700;">${myAvatar} ${esc(myPlayerName || '')}</span>
           <span style="display:flex;align-items:center;gap:12px;">
             <button class="qb-back-link" style="margin:0;" data-action="toggle-sound" title="Buzzer sound on this phone">${soundOn ? '🔊' : '🔇'}</button>
-            <span class="pts" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScore} pts</span>
+            <span class="pts" id="qb-p-score" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScore} pts</span>
           </span>
         </div>
         ${centreHTML}
-        <div class="qb-scoreboard">
+        <div class="qb-scoreboard" id="qb-p-scoreboard">
           ${scoreboardHTML(players, false)}
         </div>
       </div>
@@ -1367,12 +1544,23 @@
     `;
     bindActions();
 
+    // live readout under the thumb as they drag; the value itself is only sent
+    // when they lock it in
+    const sliderEl = document.getElementById('qb-slider');
+    if(sliderEl){
+      sliderEl.oninput = () => {
+        const out = document.getElementById('qb-slider-val');
+        if(out) out.textContent = fmtGuess(parseFloat(sliderEl.value), state.sliderUnit, groupNums(state.sliderMax));
+      };
+    }
+
     if(!playerPoll){
+      // No "are they typing?" guard here on purpose. The shape fingerprint above
+      // already leaves inputs alone while the screen's shape holds, and skipping
+      // the poll on focus would strand a phone whose slider or text box still has
+      // focus (iOS doesn't move focus when you tap a button) on a dead question.
       playerPoll = setInterval(() => {
-        // don't repaint while the player is typing a wager or a text answer,
-        // or the poll would wipe their input every 800ms
-        const typing = document.activeElement && (document.activeElement.id === 'qb-bet-amount' || document.activeElement.id === 'qb-text-answer');
-        if(view === 'player' && bucket && !typing) renderPlayer();
+        if(view === 'player' && bucket) renderPlayer();
       }, 800);
     }
   }
@@ -1426,6 +1614,47 @@
     const state = await getGameState();
     if(!state.wagerActive || state.wagerPhase !== 'betting' || !state.anteEpoch) return;
     try{ await fetch(anteUrl(state.anteEpoch, myPlayerId), { method:'DELETE' }); }catch(e){}
+    renderPlayer();
+  }
+  // "no bet": a nil stake is still an answer, so the host can see everyone has
+  // decided and get on with the question instead of waiting on a quiet phone
+  async function passBet(){
+    if(!myPlayerId) return;
+    const state = await getGameState();
+    if(!state.wagerActive || state.wagerPhase !== 'betting' || !state.anteEpoch) return;
+    const players = await getPlayers();
+    const me = players.find(p => p.id === myPlayerId);
+    try{
+      await fetch(anteUrl(state.anteEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
+        id: myPlayerId, name: me ? me.name : myPlayerName, avatar: me ? me.avatar : '', amount: 0, pass: true
+      }) });
+    }catch(e){ console.error(e); }
+    playSound('join');
+    renderPlayer();
+  }
+
+  // slider round: the guess can be re-slid and re-locked until time runs out
+  async function answerSlider(){
+    if(!myPlayerId) return;
+    const el = document.getElementById('qb-slider');
+    if(!el) return;
+    const state = await getGameState();
+    if(!state.qMode || !state.sliderMode || state.status !== 'live' || state.reviewing || !state.answerEpoch) return;
+    // clamp to the host's range in case a fiddled slider sends something silly
+    const value = Math.min(state.sliderMax, Math.max(state.sliderMin, parseFloat(el.value)));
+    if(!Number.isFinite(value)) return;
+    const players = await getPlayers();
+    const me = players.find(p => p.id === myPlayerId);
+    try{
+      await fetch(answerUrl(state.answerEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
+        id: myPlayerId,
+        name: me ? me.name : myPlayerName,
+        avatar: me ? me.avatar : '',
+        value,
+        ts: { '.sv':'timestamp' }
+      }) });
+    }catch(e){ console.error(e); }
+    playSound('join');
     renderPlayer();
   }
 
@@ -1503,6 +1732,13 @@
   // small gold instruction strip used on the projector to explain what's happening
   function tipHTML(text){
     return `<div class="qb-tip">💡 ${text}</div>`;
+  }
+  // what happened to the kitty, for the reveal screen. An unwon kitty isn't
+  // burned any more — it rolls into the next wager, which is worth shouting about.
+  function kittyLineHTML(s){
+    if(s.betWon) return `<div class="qb-pot-line">💰 ${esc(s.kittyWinnerName || s.winnerName || 'Someone')} scooped the ${s.betWon}-point kitty!</div>`;
+    if(s.kittyRolled) return `<div class="qb-pot-line roll">💰 Nobody got it &mdash; the ${s.kittyRolled}-point kitty <strong>rolls over to the next wager round!</strong></div>`;
+    return '';
   }
   function standingsHTML(players){
     const sorted = sortedPlayers(players);
@@ -1719,21 +1955,25 @@
               : '');
     } else if(!isLobby && betting){
       const inList = Object.values(bettingAntes).filter(a => a && a.id);
+      const potNow = sumAntes(bettingAntes) + (state.carryKitty || 0);
       centre = `
         <div class="qb-wager-splash">
           <div class="qb-wager-title">💰 WAGER ROUND</div>
+          ${state.carryKitty ? `<div class="qb-carry-banner">🎉 ${state.carryKitty} points rolled over &mdash; the pot starts fat!</div>` : ''}
           ${state.wagerClue ? `<div class="qb-clue-box">🕵️ Clue: <strong>${esc(state.wagerClue)}</strong></div>` : ''}
           ${state.wagerImage ? `<img class="qb-qimage" src="${esc(state.wagerImage)}" alt="clue" onerror="this.style.display='none'" />` : ''}
-          <div class="qb-wager-in">${inList.length ? inList.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} &middot; ${a.amount} pts</span>`).join('') : 'Place your bets on your phones&hellip;'}</div>
+          <div class="qb-pot">Pot: ${potNow} pts</div>
+          <div class="qb-wager-in">${inList.length ? inList.map(a => `<span class="qb-lobby-chip ${a.pass ? 'out' : ''}"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} &middot; ${a.pass ? 'no bet' : a.amount + ' pts'}</span>`).join('') : 'Place your bets on your phones&hellip;'}</div>
         </div>
         <div class="qb-rules">
           <h3>💰 Wager round rules</h3>
           <ol>
             <li>Study the clue &mdash; it hints at what's coming next.</li>
             <li>Confident? <strong>Bet up to ${MAX_BET} points on yourself</strong> on your phone, before the song starts. You can even go into <strong>minus points</strong>.</li>
+            <li>Not feeling it? Tap <strong>No bet</strong> so the host isn't left waiting.</li>
             <li>When betting closes, the question or song plays <strong>as normal</strong>.</li>
             <li>All bets pile into one <strong>kitty</strong>. Whoever wins this question <strong>takes the whole kitty</strong>, on top of the normal points.</li>
-            <li>If nobody gets it, <strong>the kitty is lost</strong>. Someone else wins? They pocket your stake.</li>
+            <li>If nobody gets it, the kitty <strong>rolls over to the next wager</strong> and keeps growing. Someone else wins? They pocket your stake.</li>
             <li>Betting is optional: everyone keeps their buzzer either way.</li>
           </ol>
         </div>
@@ -1750,7 +1990,13 @@
         <div class="qb-question-text">${esc(state.question || '')}</div>
         ${state.qImage ? `<img class="qb-qimage" src="${esc(state.qImage)}" alt="clue" onerror="this.style.display='none'" />` : ''}
         <div class="qb-countdown" id="qb-qcountdown" style="margin:0 0 18px;">${remainQ}</div>
-        ${state.textMode ? `
+        ${state.sliderMode ? `
+          <div class="qb-clue-box" style="border-style:solid;">
+            🎚️ Slide to your guess on your phone &mdash; anywhere from
+            <strong>${esc(fmtNum(state.sliderMin, groupNums(state.sliderMax)))}</strong> to <strong>${esc(fmtNum(state.sliderMax, groupNums(state.sliderMax)))}</strong>${state.sliderUnit ? ' ' + esc(state.sliderUnit) : ''}
+          </div>
+          ${tipHTML(`Closest guess wins it${state.sliderBand ? `, and anyone within <strong>${esc(fmtNum(state.sliderBand, groupNums(state.sliderMax)))}</strong> scores too` : ''} &mdash; nail it exactly for a bonus 🎯`)}
+        ` : state.textMode ? `
           <div class="qb-clue-box" style="border-style:solid;">⌨️ Type your answer on your phone!</div>
         ` : `
         <div class="qb-answer-grid">
@@ -1763,14 +2009,17 @@
       `;
     } else if(!isLobby && state.status === 'reveal' && state.qMode){
       const results = state.qResults || [];
-      const answered = results.filter(r => r.answered).sort((a, b) => (a.correct === b.correct) ? ((a.ms || 9e9) - (b.ms || 9e9)) : (a.correct ? -1 : 1));
+      // slider rounds rank by how close people got; everything else by speed
+      const answered = results.filter(r => r.answered).sort((a, b) => state.sliderMode
+        ? ((a.dist ?? 9e15) - (b.dist ?? 9e15))
+        : ((a.correct === b.correct) ? ((a.ms || 9e9) - (b.ms || 9e9)) : (a.correct ? -1 : 1)));
       const noAnswer = results.filter(r => !r.answered);
       centre = `
         <div class="qb-question-text" style="font-size:26px;">${esc(state.question || '')}</div>
-        ${state.textMode ? `
+        ${state.sliderMode || state.textMode ? `
           <div class="qb-reveal-box" style="padding:24px 30px;margin-bottom:22px;">
             <div class="qb-small">The answer was</div>
-            <div class="song" style="font-size:34px;">${esc(state.textAnswer || '')}</div>
+            <div class="song" style="font-size:34px;">${esc(state.sliderMode ? fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax)) : (state.textAnswer || ''))}</div>
           </div>
         ` : `
         <div class="qb-answer-grid" style="margin-bottom:22px;">
@@ -1779,16 +2028,15 @@
           `).join('')}
         </div>
         `}
-        ${state.betWon && state.kittyWinnerName ? `<div class="qb-pot-line">💰 ${esc(state.kittyWinnerName)} scooped the ${state.betWon}-point kitty!</div>`
-          : state.betsLost ? `<div class="qb-pot-line">💰 Nobody got it &mdash; the ${state.betsLost}-point kitty is lost!</div>` : ''}
+        ${kittyLineHTML(state)}
         <div class="qb-qresults">
           ${answered.map(r => `
             <div class="qb-qresult-row ${r.correct ? 'right' : 'wrong'}">
-              <span>${r.correct ? (r.fastest ? '🥇' : '✅') : '❌'}</span>
+              <span>${r.correct ? (r.bullseye ? '🎯' : r.fastest ? '🥇' : '✅') : '❌'}</span>
               <span>${r.avatar || ''} ${esc(r.name || '')}</span>
-              ${r.text ? `<span class="qb-small">&ldquo;${esc(r.text)}&rdquo;</span>` : ''}
-              ${r.correct ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.fastest ? ' fastest!' : ''}</span>` : ''}
-              <span class="t">${r.ms ? (r.ms / 1000).toFixed(2) + 's' : ''}</span>
+              ${r.text ? `<span class="qb-small">${state.sliderMode ? esc(r.text) : `&ldquo;${esc(r.text)}&rdquo;`}</span>` : ''}
+              ${r.correct ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.bullseye ? ' bullseye!' : r.fastest ? ' fastest!' : ''}</span>` : ''}
+              <span class="t">${state.sliderMode ? (Number.isFinite(r.dist) ? (r.dist === 0 ? 'spot on' : fmtNum(r.dist, groupNums(state.sliderMax)) + ' off') : '') : (r.ms ? (r.ms / 1000).toFixed(2) + 's' : '')}</span>
             </div>
           `).join('')}
           ${noAnswer.map(r => `
@@ -1820,8 +2068,9 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💰 Watch for <strong>wager rounds</strong> &mdash; you'll get a clue, then you can bet points into a kitty. Winner takes the lot!</li>
+            <li>💰 Watch for <strong>wager rounds</strong> &mdash; you'll get a clue, then you can bet points into a kitty. Winner takes the lot, and if nobody wins it the kitty <strong>rolls over and grows</strong>.</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
+            <li>🎚️ Others are <strong>slide-to-guess</strong> &mdash; drag to your number, closest guess wins, spot on gets a bonus.</li>
           </ol>
         </div>
       `;
@@ -1830,15 +2079,13 @@
       if(state.winnerId){
         winnerLine = `${state.winnerAvatar || ''} ${esc(state.winnerName || '')} got it, +${state.pointsAwarded} points`;
       }
-      const potLine = state.betWon ? `<div class="qb-pot-line">💰 and scooped the ${state.betWon}-point kitty!</div>`
-        : state.betsLost ? `<div class="qb-pot-line">💰 Nobody got it &mdash; the ${state.betsLost}-point kitty is lost!</div>` : '';
       centre = `
         <div class="qb-reveal-box">
           <div class="qb-small">The answer was</div>
           <div class="song">${esc(state.songTitle || 'Unknown')}</div>
           <div class="artist">${esc(state.artist || '')}</div>
           <div class="winner-line">${winnerLine}</div>
-          ${potLine}
+          ${kittyLineHTML(state)}
         </div>
       `;
     } else if(state.status === 'live' && buzz){
@@ -1879,7 +2126,7 @@
             : esc(state.roundLabel || 'Music round')
         }</div>
         ${isLobby ? `<h1 class="qb-title">${esc(state.quizTitle || 'The Music Quiz')}</h1>` : ''}
-        ${!isLobby && !showIntro && state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${Object.values(state.bets || {}).reduce((t, n) => t + n, 0)} points riding on this one</div>` : ''}
+        ${!isLobby && !showIntro && state.wagerActive && state.wagerPhase === 'playing' ? `<div class="qb-pot-pill">💰 Wager round &mdash; ${kittyTotal(state)} points riding on this one${state.carryKitty ? ` (${state.carryKitty} rolled over!)` : ''}</div>` : ''}
         ${!isLobby && !showIntro && state.suddenDeath && state.status === 'live' ? `
           <div class="qb-question-text">⚡ ${esc(state.question || '')}</div>
           ${(state.sdEligible || []).length
@@ -1959,6 +2206,7 @@
   let adminQTimer = null;   // question countdown; fires the automatic scoring
   let adminTick = null;
   let adminBuzzTimer = null;
+  let prevAllDecided = null;   // anteEpoch we've already chimed "everyone's bet" for
 
   // admin password gate. This keeps players from wandering into the host screen
   // by editing the URL; it is a lock on the door, not a vault (the app is all
@@ -2135,6 +2383,8 @@
     formCorrect = 0;
     formTextAnswer = '';
     formSDAnswer = '';
+    formSliderMin = 0; formSliderMax = 100; formSliderAnswer = 50;
+    formSliderStep = 0; formSliderBand = 0; formSliderUnit = '';
     formQPoints = 3;
     formQBonus = 1;
     formQSeconds = QUESTION_SECONDS;
@@ -2145,7 +2395,7 @@
     formOpen = round.id;
     formJustOpened = true;
     formGroupId = groupId || null;
-    formType = ['question','text','sudden'].includes(round.type) ? round.type : 'song';
+    formType = ['question','text','slider','sudden'].includes(round.type) ? round.type : 'song';
     formLabel = round.label || '';
     formSong = round.songTitle || '';
     formArtist = round.artist || '';
@@ -2160,6 +2410,14 @@
     formCorrect = round.correctIndex || 0;
     formTextAnswer = round.textAnswer || '';
     formSDAnswer = round.answer || '';
+    formSliderMin = Number(round.sliderMin) || 0;
+    // a non-slider round has no sliderMax, so fall back to the same default a
+    // fresh form gets rather than a 0-0 range
+    formSliderMax = Number.isFinite(Number(round.sliderMax)) ? Number(round.sliderMax) : 100;
+    formSliderAnswer = Number(round.sliderAnswer) || 0;
+    formSliderStep = Number(round.sliderStep) || 0;
+    formSliderBand = Number(round.sliderBand) || 0;
+    formSliderUnit = round.sliderUnit || '';
     formQPoints = round.points || 3;
     formQBonus = Number.isInteger(round.bonus) ? round.bonus : 1;
     formQSeconds = round.seconds || (round.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS);
@@ -2302,6 +2560,21 @@
     if(qsEl) formQSeconds = Math.min(120, Math.max(5, parseInt(qsEl.value, 10) || QUESTION_SECONDS));
     if(taEl) formTextAnswer = taEl.value;
     if(sdEl) formSDAnswer = sdEl.value;
+    // slider fields: hosts type "2,000,000" as often as "2000000", so strip the
+    // separators rather than bouncing them with a validation error
+    const num = id => {
+      const el = document.getElementById(id);
+      if(!el) return null;
+      const v = parseFloat(String(el.value).replace(/[,\s]/g, ''));
+      return Number.isFinite(v) ? v : 0;
+    };
+    const sMin = num('qb-slider-min'); if(sMin !== null) formSliderMin = sMin;
+    const sMax = num('qb-slider-max'); if(sMax !== null) formSliderMax = sMax;
+    const sAns = num('qb-slider-answer'); if(sAns !== null) formSliderAnswer = sAns;
+    const sStep = num('qb-slider-step'); if(sStep !== null) formSliderStep = Math.max(0, sStep);
+    const sBand = num('qb-slider-band'); if(sBand !== null) formSliderBand = Math.max(0, sBand);
+    const sUnitEl = document.getElementById('qb-slider-unit');
+    if(sUnitEl) formSliderUnit = sUnitEl.value;
     document.querySelectorAll('.qb-q-answer').forEach((inp, i) => { if(i < 4) formAnswers[i] = inp.value; });
     const picked = document.querySelector('input[name="qb-q-correct"]:checked');
     if(picked) formCorrect = parseInt(picked.value, 10) || 0;
@@ -2352,6 +2625,29 @@
         question: q,
         imageUrl: formImage.trim(),
         textAnswer: formTextAnswer.trim(),
+        points: formQPoints,
+        bonus: formQBonus,
+        seconds: formQSeconds,
+        ...wagerBits
+      };
+    } else if(formType === 'slider'){
+      const q = formQuestion.trim();
+      if(!q){ alert('Enter the question first.'); return; }
+      if(!(formSliderMax > formSliderMin)){ alert('The slider maximum has to be bigger than the minimum.'); return; }
+      if(formSliderAnswer < formSliderMin || formSliderAnswer > formSliderMax){
+        alert('The correct answer has to sit inside the slider range, or nobody can reach it.');
+        return;
+      }
+      data = {
+        type: 'slider',
+        question: q,
+        imageUrl: formImage.trim(),
+        sliderMin: formSliderMin,
+        sliderMax: formSliderMax,
+        sliderStep: formSliderStep,      // 0 means "work it out from the range"
+        sliderAnswer: formSliderAnswer,
+        sliderBand: formSliderBand,
+        sliderUnit: formSliderUnit.trim(),
         points: formQPoints,
         bonus: formQBonus,
         seconds: formQSeconds,
@@ -2424,7 +2720,8 @@
       if(!confirm(`"${prev.roundLabel || 'A round'}" still has a live question. Abandon it and load this one instead?`)) return false;
     }
     const s = defaultState();
-    s.quizTitle = prev.quizTitle || null; // survives round loads
+    s.quizTitle = prev.quizTitle || null;      // survives round loads
+    s.carryKitty = prev.carryKitty || 0;       // an unwon kitty follows the game until someone wins it
     s.roundId = r.id;
     if(g){
       // "General Knowledge · Question 2 of 5", plus "Round 1 of 3" for context
@@ -2441,15 +2738,24 @@
       s.groupNumber = 0; s.groupTotal = 0;
     }
     s.status = 'live';
-    if(r.type === 'question' || r.type === 'text'){
+    if(r.type === 'question' || r.type === 'text' || r.type === 'slider'){
       // everyone answers on their phone against the clock, no lockout
       s.qMode = true;
       s.textMode = r.type === 'text';
+      s.sliderMode = r.type === 'slider';
       s.question = r.question;
       s.qImage = r.imageUrl || null;
-      s.qAnswers = r.type === 'text' ? [] : (r.answers || []);
+      s.qAnswers = r.type === 'question' ? (r.answers || []) : [];
       s.qCorrect = r.correctIndex || 0;
       s.textAnswer = r.textAnswer || '';
+      if(s.sliderMode){
+        s.sliderMin = Number(r.sliderMin) || 0;
+        s.sliderMax = Number(r.sliderMax) || 0;
+        s.sliderStep = sliderStepFor(r);   // resolved here so every view agrees on it
+        s.sliderAnswer = Number(r.sliderAnswer) || 0;
+        s.sliderBand = Number(r.sliderBand) || 0;
+        s.sliderUnit = r.sliderUnit || '';
+      }
       s.qPoints = r.points || 1;
       s.qBonus = Number.isInteger(r.bonus) ? r.bonus : 0;
       s.qSeconds = r.seconds || (r.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS);
@@ -2552,11 +2858,9 @@
     if(s.status === 'reveal') return false;
     s.status = 'reveal';
     s.winnerId = null; s.winnerName = null; s.winnerAvatar = null; s.pointsAwarded = null;
-    // nobody won, so every bet stays lost (they were deducted at close-betting)
-    if(s.wagerActive){
-      s.betsLost = Object.values(s.bets || {}).reduce((t, n) => t + n, 0);
-      s.wagerActive = false;
-    }
+    // nobody won it, so the whole pot rolls into the next wager round rather
+    // than evaporating (stakes were already deducted at close-betting)
+    if(s.wagerActive) rollKittyOver(s);
     await saveGameState(s);
     scheduleEndOfRoundStandings(s);
     renderAdmin();
@@ -2597,8 +2901,9 @@
     let points = stage ? stage.points : 0;
     if(half) points = Math.ceil(points / 2);
     // wager rounds are winner-takes-all: the round winner scoops the whole
-    // kitty (everyone's stakes, including their own if they bet)
-    const kitty = s.wagerActive ? Object.values(s.bets || {}).reduce((t, n) => t + n, 0) : 0;
+    // kitty (everyone's stakes, including their own if they bet, plus anything
+    // that rolled over from a wager nobody won)
+    const kitty = s.wagerActive ? kittyTotal(s) : 0;
     const players = await getPlayers();
     const p = players.find(pl => pl.id === buzz.id);
     if(p){
@@ -2613,28 +2918,45 @@
     s.winnerAvatar = buzz.avatar;
     s.pointsAwarded = points;
     s.betWon = kitty;
-    if(s.wagerActive){ s.betsLost = 0; s.wagerActive = false; }
+    if(s.wagerActive){
+      s.betsLost = 0; s.kittyRolled = 0; s.carryKitty = 0;  // the pot's been claimed, nothing carries on
+      s.wagerActive = false;
+    }
     await saveGameState(s);
     scheduleEndOfRoundStandings(s);
     renderAdmin();
   }
 
-  // wager question rounds: the fastest correct answer takes the whole kitty;
-  // if nobody got it, every stake is lost
+  // nobody won the wager: bank the whole pot (this round's stakes plus anything
+  // already carried) so it re-appears, bigger, on the next wager round
+  function rollKittyOver(s){
+    const total = kittyTotal(s);
+    s.betsLost = total;
+    s.kittyRolled = total;
+    s.carryKitty = total;
+    s.betWon = 0;
+    s.wagerActive = false;
+  }
+  // wager question rounds: the best correct answer takes the whole kitty
+  // (rightOnes arrives already ranked); if nobody got it, the pot rolls over
   function settleKitty(s, rightOnes, players){
     if(!s.wagerActive) return;
-    const kitty = Object.values(s.bets || {}).reduce((t, n) => t + n, 0);
-    if(rightOnes.length && kitty){
-      const w = rightOnes[0];
-      w.kitty = kitty;
-      const p = players.find(pl => pl.id === w.id);
-      if(p) p.score = (p.score || 0) + kitty;
-      s.betWon = kitty;
-      s.kittyWinnerName = w.name || '';
-    } else if(kitty){
-      s.betsLost = kitty;
+    const kitty = kittyTotal(s);
+    if(rightOnes.length){
+      if(kitty){
+        const w = rightOnes[0];
+        w.kitty = kitty;
+        const p = players.find(pl => pl.id === w.id);
+        if(p) p.score = (p.score || 0) + kitty;
+        s.betWon = kitty;
+        s.kittyWinnerName = w.name || '';
+      }
+      s.carryKitty = 0;
+      s.kittyRolled = 0;
+      s.wagerActive = false;
+    } else {
+      rollKittyOver(s);
     }
-    s.wagerActive = false;
   }
 
   // ---------- question round scoring ----------
@@ -2645,6 +2967,8 @@
     if(!s.qMode || s.status !== 'live') return false;
     // typed-answer rounds go through host review instead of blind auto-scoring
     if(s.textMode) return startTextReview(acceptAll);
+    // slider rounds are pure numbers, so they score themselves
+    if(s.sliderMode) return scoreSlider(s, acceptAll);
     const raw = await fetchAnswers(s.answerEpoch);
     const players = await getPlayers();
     // answers are only valid inside the window, measured in pure server time
@@ -2669,6 +2993,57 @@
       const p = players.find(pl => pl.id === r.id);
       if(p) p.score = (p.score || 0) + won;
     });
+    settleKitty(s, rightOnes, players);
+    await savePlayers(players);
+    s.qResults = results;
+    s.status = 'reveal';
+    await saveGameState(s);
+    scheduleEndOfRoundStandings(s);
+    renderAdmin();
+  }
+
+  // ---------- slider round scoring ----------
+  // Nearest guess wins it, and ties genuinely share rather than racing: two
+  // people equally close both get the points. A "close enough" band (optional,
+  // per question) lets everyone inside it score too — that's what makes a huge
+  // range like PS2 sales winnable, while leaving "guess the year" cut-throat.
+  // Getting as close as the slider physically allows is a bullseye and takes the
+  // bonus. The kitty still goes to one person: the closest, fastest deciding it.
+  async function scoreSlider(s, acceptAll){
+    const raw = await fetchAnswers(s.answerEpoch);
+    const players = await getPlayers();
+    const cutoff = (s.buzzersOpenedAt || 0) + (s.qSeconds || QUESTION_SECONDS) * 1000 + 600; // small grace for network lag
+    const valid = {};
+    Object.values(raw).forEach(a => {
+      if(!a || !a.id || !Number.isFinite(a.value)) return;
+      if(!acceptAll && s.buzzersOpenedAt && a.ts && a.ts > cutoff) return;
+      valid[a.id] = a;
+    });
+    const results = players.map(p => {
+      const a = valid[p.id];
+      if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
+      return {
+        id: p.id, name: p.name, avatar: p.avatar, answered: true,
+        value: a.value, text: fmtGuess(a.value, s.sliderUnit, groupNums(s.sliderMax)),
+        dist: Math.abs(a.value - s.sliderAnswer),
+        ms: (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null
+      };
+    });
+    const guesses = results.filter(r => r.answered);
+    if(guesses.length){
+      const best = Math.min(...guesses.map(r => r.dist));
+      const band = Number(s.sliderBand) || 0;
+      guesses.forEach(r => {
+        r.correct = r.dist === best || (band > 0 && r.dist <= band);
+        if(!r.correct) return;
+        r.bullseye = isBullseye(r.dist, s.sliderStep);
+        r.won = (s.qPoints || 0) + (r.bullseye ? (s.qBonus || 0) : 0);
+        const p = players.find(pl => pl.id === r.id);
+        if(p) p.score = (p.score || 0) + r.won;
+      });
+    }
+    // closest first, and the quicker thumb breaks a dead heat for the kitty
+    const rightOnes = guesses.filter(r => r.correct).sort((a, b) => (a.dist - b.dist) || ((a.ms || 9e9) - (b.ms || 9e9)));
     settleKitty(s, rightOnes, players);
     await savePlayers(players);
     s.qResults = results;
@@ -2825,9 +3200,66 @@
           <button class="qb-btn qb-btn-small ${formType === 'song' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="song">🎵 Song</button>
           <button class="qb-btn qb-btn-small ${formType === 'question' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="question">❓ Multiple choice</button>
           <button class="qb-btn qb-btn-small ${formType === 'text' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="text">⌨️ Type the answer</button>
+          <button class="qb-btn qb-btn-small ${formType === 'slider' ? 'qb-btn-gold' : 'qb-btn-ghost'}" data-action="pick-round-type" data-type="slider">🎚️ Slider range</button>
         </div>
         `}
-        ${formType === 'text' ? `
+        ${formType === 'slider' ? (() => {
+          const step = sliderStepFor({ sliderMin: formSliderMin, sliderMax: formSliderMax, sliderStep: formSliderStep });
+          const notches = step > 0 ? Math.round((formSliderMax - formSliderMin) / step) : 0;
+          const rangeOk = formSliderMax > formSliderMin;
+          return `
+        <div class="qb-form-cols">
+          <div>
+            <label class="qb-label">Question</label>
+            <input class="qb-input" id="qb-q-text" placeholder="e.g. How many PlayStation 2 units have been sold?" value="${esc(formQuestion)}" />
+            <label class="qb-label">Image link (optional clue &mdash; paste a picture URL)</label>
+            <input class="qb-input" id="qb-q-image" placeholder="https://…" value="${esc(formImage)}" />
+            <div class="qb-wager-fields">
+              <div>
+                <label class="qb-label">Slider minimum</label>
+                <input class="qb-input qb-slider-cfg" id="qb-slider-min" value="${esc(formSliderMin)}" style="margin-bottom:0;" />
+              </div>
+              <div>
+                <label class="qb-label">Slider maximum</label>
+                <input class="qb-input qb-slider-cfg" id="qb-slider-max" value="${esc(formSliderMax)}" style="margin-bottom:0;" />
+              </div>
+              <div>
+                <label class="qb-label">The correct answer</label>
+                <input class="qb-input qb-slider-cfg" id="qb-slider-answer" value="${esc(formSliderAnswer)}" style="margin-bottom:0;" />
+              </div>
+            </div>
+            <p class="qb-small" style="margin:8px 0 16px;">${!rangeOk
+              ? '⚠️ The maximum needs to be bigger than the minimum.'
+              : `Players will slide in steps of <strong>${esc(fmtNum(step, groupNums(formSliderMax)))}</strong>${formSliderStep ? '' : ' (worked out from your range)'} &mdash; that's ${notches} notches to drag across.${notches < 10 ? ' That\'s very few — consider a wider range or a smaller step.' : notches > 400 ? ' That\'s a lot — a bigger step would be easier to land on a phone.' : ''}`}</p>
+          </div>
+          <div>
+            <label class="qb-label">Unit shown next to the number (optional)</label>
+            <input class="qb-input" id="qb-slider-unit" placeholder="e.g. units, %, years" value="${esc(formSliderUnit)}" />
+            <label class="qb-label">&ldquo;Close enough&rdquo; band (optional)</label>
+            <input class="qb-input qb-slider-cfg" id="qb-slider-band" value="${esc(formSliderBand)}" />
+            <p class="qb-small" style="margin:0 0 12px;">${formSliderBand > 0
+              ? `Anyone within <strong>&plusmn;${esc(fmtNum(formSliderBand, groupNums(formSliderMax)))}</strong> of the answer scores, not just the closest. Good for huge ranges where nobody will be near.`
+              : 'Leave at 0 for pure <strong>nearest-wins</strong> &mdash; right for years and small numbers. On a big range (millions), set a band so more than one person can win it.'}</p>
+            <label class="qb-label">Step override (optional &mdash; 0 = auto)</label>
+            <input class="qb-input qb-slider-cfg" id="qb-slider-step" value="${esc(formSliderStep)}" />
+            <div class="qb-wager-fields">
+              <div>
+                <label class="qb-label">Points for winning it</label>
+                <input class="qb-input" id="qb-q-points" type="number" min="1" value="${formQPoints}" style="margin-bottom:0;" />
+              </div>
+              <div>
+                <label class="qb-label">Bonus for a bullseye</label>
+                <input class="qb-input" id="qb-q-bonus" type="number" min="0" value="${formQBonus}" style="margin-bottom:0;" />
+              </div>
+              <div>
+                <label class="qb-label">Seconds to guess</label>
+                <input class="qb-input" id="qb-q-seconds" type="number" min="5" max="120" value="${formQSeconds}" style="margin-bottom:0;" />
+              </div>
+            </div>
+            <p class="qb-small" style="margin:8px 0 16px;">Closest guess wins the points and ties share them. Landing on the nearest notch the slider allows counts as a 🎯 bullseye and takes the bonus. Scores itself &mdash; no review screen.</p>
+          </div>
+        </div>
+        `; })() : formType === 'text' ? `
         <div class="qb-form-cols">
           <div>
             <label class="qb-label">Question</label>
@@ -3173,12 +3605,22 @@
     let bettingPanel = '';
     if(betting){
       const inList = Object.values(liveAntes).filter(a => a && a.id);
+      const decided = antesDecided(liveAntes);
+      const allIn = players.length > 0 && decided >= players.length;
+      const waiting = players.filter(p => !inList.some(a => a.id === p.id && (a.amount > 0 || a.pass))).map(p => p.name);
+      // the host shouldn't have to guess whether a quiet phone is thinking or done:
+      // a "no bet" tap counts as deciding, and this chimes once when the last one lands
+      if(allIn && prevAllDecided !== state.anteEpoch){
+        prevAllDecided = state.anteEpoch;
+        playSound('join');
+      }
       bettingPanel = `
-        <div class="qb-buzzed-banner">
+        <div class="qb-buzzed-banner ${allIn ? 'ready' : ''}">
           <div class="qb-small">💰 WAGER ROUND &middot; betting open &middot; the clue is on the projector, the question is still hidden</div>
-          <div class="who">${sumAntes(liveAntes)} pts in the kitty</div>
-          <div class="qb-small" style="margin-bottom:12px;">${inList.length ? inList.map(a => `${a.avatar || ''} ${esc(a.name || '')} (${a.amount})`).join(', ') : 'No bets yet'}</div>
-          <button class="qb-btn qb-btn-gold" data-action="close-betting">${state.qMode ? 'Close betting &amp; reveal the question' : 'Close betting &amp; start the song'}</button>
+          <div class="who">${sumAntes(liveAntes) + (state.carryKitty || 0)} pts in the kitty${state.carryKitty ? ` (${state.carryKitty} rolled over)` : ''}</div>
+          <div class="qb-small">${decided} of ${players.length} decided${waiting.length && !allIn ? ` &middot; waiting on ${esc(waiting.join(', '))}` : ''}</div>
+          <div class="qb-small" style="margin-bottom:12px;">${inList.length ? inList.map(a => `${a.avatar || ''} ${esc(a.name || '')} ${a.pass ? '(no bet)' : `(${a.amount})`}`).join(', ') : 'Nobody has decided yet'}</div>
+          <button class="qb-btn qb-btn-gold" data-action="close-betting">${allIn ? '✅ Everyone\'s decided &mdash; ' : ''}${state.qMode ? 'Close betting &amp; reveal the question' : 'Close betting &amp; start the song'}</button>
         </div>
       `;
     }
@@ -3186,8 +3628,10 @@
     let nowPlayingSection = '';
     if(state.roundId && state.qMode){
       const answeredList = Object.values(liveAnswers).filter(a => a && a.id);
-      const typeTag = state.textMode ? '⌨️ type the answer' : '❓ multiple choice';
-      const correctShown = state.textMode ? (state.textAnswer || '') : ((state.qAnswers || [])[state.qCorrect] || '');
+      const typeTag = state.sliderMode ? '🎚️ slider range' : state.textMode ? '⌨️ type the answer' : '❓ multiple choice';
+      const correctShown = state.sliderMode ? fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax))
+        : state.textMode ? (state.textAnswer || '')
+        : ((state.qAnswers || [])[state.qCorrect] || '');
       let phasePanel;
       if(betting){
         phasePanel = bettingPanel;
@@ -3210,8 +3654,12 @@
       } else {
         phasePanel = `
           <div class="qb-buzzed-banner">
-            <div class="qb-small">${state.textMode ? `Typing closes after ${state.qSeconds || TEXT_SECONDS}s, then you review before any points are given` : `Answers lock in automatically when the ${state.qSeconds || QUESTION_SECONDS}s are up`}</div>
-            <div class="who">${answeredList.length} of ${players.length} answered</div>
+            <div class="qb-small">${state.textMode
+              ? `Typing closes after ${state.qSeconds || TEXT_SECONDS}s, then you review before any points are given`
+              : state.sliderMode
+                ? `Guesses lock in when the ${state.qSeconds || QUESTION_SECONDS}s are up, then it scores itself &mdash; closest to ${esc(fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax)))} wins${state.sliderBand ? `, plus anyone within ±${esc(fmtNum(state.sliderBand, groupNums(state.sliderMax)))}` : ''}`
+                : `Answers lock in automatically when the ${state.qSeconds || QUESTION_SECONDS}s are up`}</div>
+            <div class="who">${answeredList.length} of ${players.length} ${state.sliderMode ? 'guessed' : 'answered'}</div>
             <button class="qb-btn qb-btn-gold" data-action="end-question">Everyone's in &mdash; end it now</button>
           </div>
         `;
@@ -3284,12 +3732,14 @@
       const wager = r.isWager ? ' <span class="qb-wager-tag">💰 WAGER</span>' : '';
       if(r.type === 'question') return '<span class="qb-wager-tag" style="background:#2e86de;color:#fff;">❓ CHOICE</span>' + wager;
       if(r.type === 'text') return '<span class="qb-wager-tag" style="background:#4cc38a;color:#12141c;">⌨️ TYPED</span>' + wager;
+      if(r.type === 'slider') return '<span class="qb-wager-tag" style="background:#b06cf0;color:#fff;">🎚️ SLIDER</span>' + wager;
       if(r.type === 'sudden') return '<span class="qb-wager-tag" style="background:#e63946;color:#fff;">⚡ SUDDEN DEATH</span>';
       return wager;
     };
     const roundMeta = r => {
       if(r.type === 'question') return `${esc(r.question || '')} &middot; ${r.points} pts +${r.bonus} fastest &middot; ${r.seconds || QUESTION_SECONDS}s`;
       if(r.type === 'text') return `${esc(r.question || '')} &middot; "${esc(r.textAnswer || '')}" &middot; ${r.points} pts +${r.bonus} fastest &middot; ${r.seconds || TEXT_SECONDS}s`;
+      if(r.type === 'slider') return `${esc(r.question || '')} &middot; ${esc(fmtGuess(r.sliderAnswer, r.sliderUnit, groupNums(r.sliderMax)))} &middot; ${esc(fmtNum(r.sliderMin, groupNums(r.sliderMax)))}&ndash;${esc(fmtNum(r.sliderMax, groupNums(r.sliderMax)))} in ${esc(fmtNum(sliderStepFor(r), groupNums(r.sliderMax)))}s${r.sliderBand ? ` &middot; &plusmn;${esc(fmtNum(r.sliderBand, groupNums(r.sliderMax)))} band` : ''} &middot; ${r.points} pts +${r.bonus} bullseye &middot; ${r.seconds || QUESTION_SECONDS}s`;
       if(r.type === 'sudden') return `${esc(r.question || '')} &middot; ${esc(r.answer || '')} &middot; ${r.points} pts`;
       return `${esc(r.songTitle)} &mdash; ${esc(r.artist)} &middot; ${(r.stages || []).length} layers${r.isWager ? ' &middot; clue: ' + esc(r.wagerClue || '') : ''}`;
     };
@@ -3451,6 +3901,13 @@
     });
     bindActions();
 
+    // the slider form's live "steps of 100,000 — 80 notches" note only makes
+    // sense if it re-reads the range as the host fills it in. On change (not
+    // input), so it fires when they leave the box rather than mid-keystroke.
+    root.querySelectorAll('.qb-slider-cfg').forEach(el => {
+      el.onchange = () => { readFormFromDOM(); renderAdmin(); };
+    });
+
     // bring the freshly opened inline builder into view so the host isn't left
     // hunting for it after clicking "+ Add question" halfway down a long list
     if(formJustOpened){
@@ -3516,10 +3973,14 @@
           placeBet();
         } else if(action === 'cancel-bet'){
           cancelBet();
+        } else if(action === 'pass-bet'){
+          passBet();
         } else if(action === 'answer-choice'){
           answerQuestion(parseInt(el.getAttribute('data-choice'), 10));
         } else if(action === 'answer-text'){
           answerText();
+        } else if(action === 'answer-slider'){
+          answerSlider();
         } else if(action === 'end-question'){
           withUndo('ending the question early', () => scoreQuestion(true));
         } else if(action === 'toggle-review-mark'){
@@ -3618,9 +4079,10 @@
         } else if(action === 'pick-round-type'){
           readFormFromDOM();
           const t = el.getAttribute('data-type');
-          formType = ['question', 'text'].includes(t) ? t : 'song';
-          // sensible time prefill for the chosen type (typing needs longer); still editable
-          formQSeconds = formType === 'text' ? TEXT_SECONDS : QUESTION_SECONDS;
+          formType = ['question', 'text', 'slider'].includes(t) ? t : 'song';
+          // sensible time prefill for the chosen type (typing and sliding both
+          // need longer than tapping a colour); still editable
+          formQSeconds = (formType === 'text' || formType === 'slider') ? TEXT_SECONDS : QUESTION_SECONDS;
           renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();

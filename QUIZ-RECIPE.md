@@ -55,7 +55,7 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 }
 ```
 
-> **Wagers work on ANY question type** (multiple choice, text, or song — not sudden death). Add these three fields to any question to make it a betting round: `"isWager": true, "wagerClue": "a teasing hint shown BEFORE the question is revealed", "wagerImage": ""` (optional picture). Players bet points into a kitty off the clue alone, then the question plays as normal and **whoever wins it takes the whole kitty**. Use sparingly — one or two per quiz.
+> **Wagers work on ANY question type** (multiple choice, text, slider, or song — not sudden death). Add these three fields to any question to make it a betting round: `"isWager": true, "wagerClue": "a teasing hint shown BEFORE the question is revealed", "wagerImage": ""` (optional picture). Players bet points into a kitty off the clue alone, then the question plays as normal and **whoever wins it takes the whole kitty**. If nobody wins it, the kitty **rolls over into the next wager round** and keeps growing. Use sparingly — one or two per quiz.
 
 **Type-the-answer** — everyone types a free-text answer; the host approves near-misses:
 ```jsonc
@@ -71,6 +71,28 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
   "imageUrl": ""                // optional
 }
 ```
+
+**Slider range** — everyone drags to a number on their phone; closest guess wins. Ideal for "how many/how much/what year" questions where nobody knows the exact figure:
+```jsonc
+{
+  "id": "q4",
+  "type": "slider",
+  "label": "Question 3",
+  "question": "How many PlayStation 2 units have been sold worldwide?",
+  "sliderMin": 20000000,        // the ends of the slider — the answer MUST sit between them
+  "sliderMax": 200000000,
+  "sliderAnswer": 160000000,    // the true figure
+  "sliderStep": 0,              // 0 = auto (recommended): derived from the range, ~50-200 notches
+  "sliderBand": 5000000,        // 0 = pure nearest-wins; otherwise EVERYONE within ±this also scores
+  "sliderUnit": "units",        // optional, shown after the number ("", "%", "years", "units")
+  "points": 3,
+  "bonus": 2,                   // extra points for a bullseye (the closest notch to the answer)
+  "seconds": 25,
+  "imageUrl": ""                // optional
+}
+```
+
+> **Picking `sliderBand`** — this is the one judgement call. Use `0` when the range is small and people can realistically be exact (a year, an age, a percentage): closest wins outright and it stays cut-throat. Use a band of roughly **2-5% of the range** when the range is huge (millions), where nobody will ever be near and "closest wins" would feel arbitrary — a band lets several people score. Set the range so the true answer is **not** dead in the middle, or it's too guessable.
 
 **Song round** — the layered-music buzzer round the app was built around (only use if the user wants music rounds; they play the audio themselves):
 ```jsonc
@@ -108,9 +130,10 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 - Every `id` must be **unique across the entire file** (groups, questions, sudden deaths).
 - `answers` for a `question` must be **exactly 4** strings; `correctIndex` in **0-3**.
 - `points`, `bonus`, `seconds`, `correctIndex` must be **numbers**, not strings.
+- For a `slider`, every `slider*` field must be a **number** (not a string, no commas: `20000000`, never `"20,000,000"`), and `sliderMin < sliderAnswer < sliderMax` — an answer outside the range is unreachable and nobody can win.
 - Groups come **first** in the array, sudden deaths **last**.
 - Always include **2 sudden-death tie-breakers** by default (see the note under "The JSON shape") unless the user opts out.
-- Don't invent other `type` values. Valid: `group`, `question`, `text`, `song`, `sudden`.
+- Don't invent other `type` values. Valid: `group`, `question`, `text`, `slider`, `song`, `sudden`.
 - Write **real, correct** answers. Double-check facts. For `text` answers, pick a single clear accepted spelling (the host can approve variants live).
 
 ## Upload command

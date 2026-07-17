@@ -39,7 +39,7 @@ Everything for one game lives under `/games/<code>/`:
 `qb-rounds` = `[...groups, ...suddenDeaths]`.
 
 - **Group (a "round")**: `{id, type:'group', name:'General Knowledge', questions:[...]}`
-- **Questions** (inside a group, any mix): `type:'song'` (layered music buzzer), `type:'question'` (4-way multiple choice), `type:'text'` (typed answer)
+- **Questions** (inside a group, any mix): `type:'song'` (layered music buzzer), `type:'question'` (4-way multiple choice), `type:'text'` (typed answer), `type:'slider'` (slide-to-guess a number)
 - **Sudden death**: `type:'sudden'`, top level, **after** all groups. Sits outside the running order (no "Question X of Y", never counts as the final round).
 - Legacy flat libraries are auto-folded into a single "Round 1" group by `upgradeLibrary()`.
 
@@ -49,7 +49,11 @@ Everything for one game lives under `/games/<code>/`:
 
 - **Song rounds**: instrument layers revealed one at a time, fewer layers = more points. First buzz locks everyone out. **One guess per song** (wrong = out for that song, buzzers reopen for everyone else). 15s to answer after buzzing.
 - **Question/text rounds**: everyone answers on their phone against a per-round timer (`seconds`, default 15 / 25 for typing). No lockout. Fastest correct gets a bonus. **Text rounds go to a host review screen** — fuzzy matching (case/spacing/punctuation/accents ignored) pre-ticks near-misses, host approves with ✓/✗, nothing scores until "Confirm & score it".
-- **Wagers**: set `isWager` + `wagerClue` on **any** question type. Projector shows the clue first; players bet up to `MAX_BET` (10) into a kitty, **scores may go negative**. Host closes betting, question plays normally, **the winner takes the whole kitty**. Betting is optional; everyone keeps their buzzer.
+- **Slider rounds** (`type:'slider'`): host sets min/max/answer; players drag on their phone. **Nearest guess wins** and ties genuinely share. Optional `sliderBand` — everyone within ±band also scores (leave 0 for cut-throat "guess the year"; set one for huge ranges like PS2 sales). A **bullseye** (`dist <= step/2`, i.e. the closest notch the slider can reach) takes the `bonus`; with a step of 1 that collapses to an exact hit. Scores itself — no review screen. The kitty still goes to one person: closest, fastest breaking a dead heat.
+  - **The step is derived, not typed**: `niceStep()` = range/100 snapped to a 1/2/5×10ⁿ ladder, so 2m-10m slides in 100,000s and 1990-2025 slides in 1s. `sliderStepFor()` resolves it **once at load time** into `state.sliderStep`, so every view agrees; don't recompute it per view. A `sliderStep` override on the round wins.
+  - **Number formatting is per-question**: `groupNums(sliderMax)` decides thousands separators, because "160,000,000" needs them and "2,007" is just wrong. Every `fmtNum`/`fmtGuess` call must pass it.
+- **Wagers**: set `isWager` + `wagerClue` on **any** question type. Projector shows the clue first; players bet up to `MAX_BET` (100) into a kitty, **scores may go negative**. Players who don't fancy it tap **No bet**, which writes a `{amount:0, pass:true}` ante — that's what makes `antesDecided()` reach the player count so the host knows to stop waiting. Host closes betting, question plays normally, **the winner takes the whole kitty**. Betting is optional; everyone keeps their buzzer.
+- **The kitty rolls over**: nobody wins it → `rollKittyOver()` banks the pot in `state.carryKitty` instead of burning it, and it survives round loads (like `quizTitle`) until someone finally wins, growing each time. `kittyTotal(s)` = this round's stakes **+** the carry — use it everywhere rather than summing `bets` by hand. A win zeroes `carryKitty`; `defaultState()` means a reset clears it too.
 - **Ties**: when the last question of the **last** group reveals with the top level, admin shows a gold tie panel with one-click "Run sudden death". Loading a sudden death during a tie snapshots the tied leaders into `sdEligible` — **only their buzzers work**. The podium button soft-confirms over a tie (never hard-blocks).
 - **Podium**: staged 3rd/2nd/1st reveal with a synthesized track. Host-triggered.
 
@@ -58,10 +62,13 @@ Everything for one game lives under `/games/<code>/`:
 1. **Race-free writes.** Buzzes/answers/bets each write **only their own key** under an epoch, stamped with Firebase's server clock (`{'.sv':'timestamp'}`); the earliest timestamp wins. **Never** read-modify-write a shared array from a player device. `qb-players` (scores) is written **only by the host tab** — single writer.
 2. **Server time only.** Reaction/answer times compare `ts` to `state.buzzersOpenedAt`, both server-stamped. Never trust phone clocks.
 3. **Polls rebuild the DOM** (display 900ms, player 800ms, admin 1200ms) — this has caused several bugs:
-   - Don't rebuild anything with an `<img>` or an input every poll. Live questions **render once** and only patch the answered-chips (`data-qepoch` + `#qb-answered-row`). Rebuilding restarted the image load forever and jolted the layout.
-   - Guard repaints while the user types (`document.activeElement` checks on bet/text inputs).
+   - Don't rebuild anything with an `<img>` or an input every poll. Rebuilding restarts the image load forever (so it never appears) and throws away a half-dragged slider or half-typed answer.
+   - **Display**: live questions **render once** and only patch the answered-chips (`data-qepoch` + `#qb-answered-row`).
+   - **Player**: every render fingerprints everything that decides the screen's *shape* (`prevPlayerShape`). Same shape → patch the live numbers by id (`#qb-p-score`, `#qb-p-kitty`, `#qb-p-pot`, `#qb-p-decided`, `#qb-p-answered`, `#qb-p-scoreboard`) and return. **Anything new that changes the phone's structure must go in that fingerprint**, or it'll never appear.
+   - The player poll deliberately has **no `document.activeElement` guard**: the fingerprint already protects inputs, and skipping the poll on focus would strand a phone (iOS doesn't move focus when you tap a button) on a dead question forever. Don't "fix" this by re-adding the guard.
    - Admin preserves per-panel scroll across repaints via `data-scrollkey`.
    - Don't poll at all when there's no `bucket` (the setup screen) — it stole focus.
+   - Admin form inputs that feed a live-recalculated hint (the slider's step/notches note) bind `onchange`, **not** `oninput` — re-rendering mid-keystroke steals focus. Never give such an input a `data-action`; `bindActions` wires those to `onclick`, so clicking into the field would re-render it out from under the cursor.
 4. **Countdowns**: bake the *current* remaining value into each render; never reset the timer on a transient failed fetch (only a new epoch/reveal clears it).
 5. **Stale renders**: every polled view takes a sequence ticket (`displaySeq`/`playerSeq`/`adminSeq`) and abandons itself if superseded.
 6. **Audio**: Web Audio is synthesized (no files). `playFx` queues on `AudioContext.resume()` so the first tap is audible; a keepalive resumes it if the browser suspends it. iOS silent switch still mutes phones — the lobby tells players to unmute.
