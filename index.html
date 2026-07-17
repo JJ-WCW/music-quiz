@@ -427,7 +427,8 @@
   .qb-qtype-row{display:flex;gap:8px;margin-bottom:14px;}
   .qb-answer-chip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:#fff;font-size:15px;flex-shrink:0;}
   .qb-question-text{font-family:'Archivo Black',sans-serif;font-size:34px;margin-bottom:18px;}
-  .qb-qimage{max-width:min(440px,80vw);max-height:300px;border-radius:14px;margin:0 auto 18px;display:block;}
+  /* white backing so transparent PNGs (logos) stay visible on the dark stage */
+  .qb-qimage{max-width:min(440px,80vw);max-height:300px;border-radius:14px;margin:0 auto 18px;display:block;background:#fff;}
   .qb-answer-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:900px;margin:0 auto 20px;}
   .qb-answer-sq{
     border-radius:14px;padding:24px 18px;font-size:23px;font-weight:800;color:#fff;
