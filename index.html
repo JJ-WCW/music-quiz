@@ -204,41 +204,46 @@
   .qb-admin-section{margin-bottom:26px;}
   .qb-admin-section h3{margin:0 0 12px;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--text-dim);}
 
-  /* desktop admin dashboard: the host runs the night from a laptop, so use the width */
+  /* desktop admin dashboard: everything on one screen, no page scrolling.
+     The layout is a fixed-height column: header, then the live strip (always
+     visible), then three columns that each scroll their own content. */
   .qb-admin-layout{
-    width:100%;max-width:1400px;display:grid;gap:16px;
-    grid-template-columns:repeat(3, minmax(0, 1fr));
-    align-items:start;
+    width:100%;max-width:1400px;display:flex;flex-direction:column;gap:16px;
+    height:calc(100dvh - 120px);min-height:420px;
   }
-  .qb-admin-header{grid-column:1/-1;display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;}
+  .qb-admin-header{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;flex:none;}
   .qb-admin-header .qb-title{margin:0;font-size:24px;}
   .qb-admin-header .code{color:var(--gold);font-family:'Archivo Black',sans-serif;letter-spacing:1px;}
   .qb-admin-card{
     background:var(--panel);border-radius:18px;padding:20px 22px;
     box-shadow:0 8px 30px rgba(0,0,0,0.35);min-width:0;
+    scrollbar-width:thin;
   }
   .qb-admin-card .qb-admin-section{margin-bottom:0;}
   .qb-admin-card .qb-admin-section + .qb-admin-section{margin-top:22px;}
-  .qb-admin-card.qb-full{grid-column:1/-1;}
-  /* the live strip sticks to the top of the window so verdict/review buttons
-     never scroll away, and each column scrolls its own content so the host
-     can review answers and load the next question without page-scrolling */
-  .qb-admin-card.live{
-    border:1px solid #3a4160;
-    position:sticky;top:8px;z-index:30;
-    max-height:62vh;overflow-y:auto;
-    box-shadow:0 12px 40px rgba(0,0,0,0.6);
+  .qb-admin-card.qb-full{flex:none;max-height:44vh;overflow-y:auto;}
+  .qb-admin-card.live{border:1px solid #3a4160;}
+  .qb-admin-cols{
+    flex:1;min-height:0;
+    display:grid;grid-template-columns:repeat(3, minmax(0, 1fr));gap:16px;
   }
-  .qb-admin-layout > .qb-admin-card:not(.qb-full){
-    max-height:calc(100vh - 60px);overflow-y:auto;
-    scrollbar-width:thin;
-  }
+  .qb-admin-cols > *{min-height:0;}
+  .qb-admin-cols > .qb-admin-card{overflow-y:auto;}
+  .qb-col{display:flex;flex-direction:column;gap:16px;min-height:0;}
+  .qb-col > .qb-admin-card{overflow-y:auto;flex:0 1 auto;min-height:0;}
+  .qb-col > .qb-admin-card:first-child{flex:1 1 auto;}
   .qb-admin-card::-webkit-scrollbar{width:8px;}
   .qb-admin-card::-webkit-scrollbar-thumb{background:#3a4160;border-radius:4px;}
   .qb-form-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start;}
-  @media(max-width:1100px){.qb-admin-layout{grid-template-columns:repeat(2, minmax(0,1fr));}}
+  @media(max-width:1100px){
+    /* smaller screens: give up the fixed dashboard and scroll the page normally */
+    .qb-admin-layout{height:auto;min-height:0;}
+    .qb-admin-cols{grid-template-columns:repeat(2, minmax(0,1fr));}
+    .qb-admin-card.qb-full,.qb-admin-cols > .qb-admin-card,.qb-col > .qb-admin-card{max-height:none;overflow:visible;}
+    .qb-col > .qb-admin-card:first-child{flex:none;}
+  }
   @media(max-width:740px){
-    .qb-admin-layout{grid-template-columns:1fr;}
+    .qb-admin-cols{grid-template-columns:1fr;}
     .qb-form-cols{grid-template-columns:1fr;}
   }
   .qb-buzzed-banner{
@@ -3335,6 +3340,11 @@
       ? `<p class="qb-small">None built yet. Add up to 3 in case the night ends level &mdash; they only run when you load one.</p>`
       : lib.suddens.map((r, i) => roundRowHTML(r, i, lib.suddens, null)).join('');
 
+    // remember each panel's scroll position: the 1.2s poll rebuilds the DOM,
+    // which would otherwise bounce every list back to the top mid-scroll
+    const scrollKeep = {};
+    root.querySelectorAll('[data-scrollkey]').forEach(el => { if(el.scrollTop) scrollKeep[el.getAttribute('data-scrollkey')] = el.scrollTop; });
+
     root.innerHTML = `
       ${backLink('home','&larr; Back')}
       <div class="qb-admin-layout">
@@ -3368,10 +3378,10 @@
             </div>
           </div>`;
         })()}
-        ${nowPlayingSection ? `<div class="qb-admin-card qb-full live">${nowPlayingSection}</div>` : ''}
+        ${nowPlayingSection ? `<div class="qb-admin-card qb-full live" data-scrollkey="live">${nowPlayingSection}</div>` : ''}
 
-
-        <div class="qb-admin-card">
+        <div class="qb-admin-cols">
+        <div class="qb-admin-card" data-scrollkey="projector">
           ${projectorCardHTML(state)}
           ${undoStack.length ? `
           <div class="qb-admin-section">
@@ -3380,7 +3390,7 @@
           </div>` : ''}
         </div>
 
-        <div class="qb-admin-card">
+        <div class="qb-admin-card" data-scrollkey="library">
           <div class="qb-admin-section">
             <h3>📚 Rounds</h3>
             ${roundsListHTML}
@@ -3395,7 +3405,8 @@
           </div>
         </div>
 
-        <div class="qb-admin-card">
+        <div class="qb-col">
+        <div class="qb-admin-card" data-scrollkey="players">
           <div class="qb-admin-section">
             <h3>👥 Players (${players.length})</h3>
             ${players.length === 0 ? '<p class="qb-small">Nobody has joined yet. Send them to the sign up page.</p>' : ''}
@@ -3426,11 +3437,17 @@
           </div>
         </div>
 
-        <div class="qb-admin-card">
+        <div class="qb-admin-card" data-scrollkey="session">
           ${sessionCardHTML()}
+        </div>
+        </div>
         </div>
       </div>
     `;
+    root.querySelectorAll('[data-scrollkey]').forEach(el => {
+      const v = scrollKeep[el.getAttribute('data-scrollkey')];
+      if(v) el.scrollTop = v;
+    });
     bindActions();
 
     // bring the freshly opened inline builder into view so the host isn't left
