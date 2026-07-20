@@ -460,6 +460,9 @@
   /* multiple-choice question rounds */
   .qb-qtype-row{display:flex;gap:8px;margin-bottom:14px;}
   .qb-answer-chip{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;color:#fff;font-size:15px;flex-shrink:0;}
+  /* the answer a player picked, shown on the reveal in that button's colour */
+  .qb-pick-chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 12px;color:#fff;font-size:15px;font-weight:700;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+  .qb-pick-chip .shape{font-size:11px;}
   .qb-question-text{font-family:'Archivo Black',sans-serif;font-size:34px;margin-bottom:18px;}
   /* white backing so transparent PNGs (logos) stay visible on the dark stage */
   .qb-qimage{max-width:min(440px,80vw);max-height:300px;border-radius:14px;margin:0 auto 18px;display:block;background:#fff;}
@@ -1362,7 +1365,9 @@
           : mine.fastest ? ' — fastest answer, bonus included 🥇' : '';
         statusSub = `✅ You got it! +${mine.won} points${why}`;
       } else if(mine && mine.answered){
-        statusSub = `❌ Not this time${mine.text ? ` — you put “${esc(mine.text)}”` : ''}`;
+        const picked = mine.text ? `you put “${esc(mine.text)}”`
+          : Number.isInteger(mine.choice) ? `you picked ${ANSWER_SHAPES[mine.choice] || ''} ${esc((state.qAnswers || [])[mine.choice] || '')}` : '';
+        statusSub = `❌ Not this time${picked ? ` — ${picked}` : ''}`;
       } else {
         statusSub = "You didn't answer in time";
       }
@@ -2047,7 +2052,8 @@
             <div class="qb-qresult-row ${r.correct ? 'right' : 'wrong'}">
               <span>${r.correct ? (r.bullseye ? '🎯' : r.fastest ? '🥇' : '✅') : '❌'}</span>
               <span>${r.avatar || ''} ${esc(r.name || '')}</span>
-              ${r.text ? `<span class="qb-small">${state.sliderMode ? esc(r.text) : `&ldquo;${esc(r.text)}&rdquo;`}</span>` : ''}
+              ${r.text ? `<span class="qb-small">${state.sliderMode ? esc(r.text) : `&ldquo;${esc(r.text)}&rdquo;`}</span>`
+                : Number.isInteger(r.choice) ? `<span class="qb-pick-chip" style="background:${ANSWER_COLORS[r.choice] || '#666'};"><span class="shape">${ANSWER_SHAPES[r.choice] || ''}</span>${esc((state.qAnswers || [])[r.choice] || '')}</span>` : ''}
               ${r.correct ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.bullseye ? ' bullseye!' : r.fastest ? ' fastest!' : ''}</span>` : ''}
               <span class="t">${state.sliderMode ? (Number.isFinite(r.dist) ? (r.dist === 0 ? 'spot on' : fmtNum(r.dist, groupNums(state.sliderMax)) + ' off') : '') : (r.ms ? (r.ms / 1000).toFixed(2) + 's' : '')}</span>
             </div>
