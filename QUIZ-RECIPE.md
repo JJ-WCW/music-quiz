@@ -79,6 +79,8 @@ The players are in the **UK**. Write for them:
 
 ### Question types (these go inside a group's `questions` array)
 
+> **Standard points** (use these unless the user asks for something else): multiple choice = **3**, typed answers = **6** (typing is harder than tapping), sliders = 3. `bonus` — the fastest-finger bonus for the quickest correct answer (on a slider it's the bullseye bonus instead) — is **2 on every question type**.
+
 **Multiple choice** — everyone taps one of four coloured answers on their phone:
 ```jsonc
 {
@@ -88,8 +90,8 @@ The players are in the **UK**. Write for them:
   "question": "What is the capital of Australia?",
   "answers": ["Canberra", "Sydney", "Melbourne", "Perth"],  // EXACTLY 4 strings
   "correctIndex": 0,            // 0-3 — MUST vary from question to question, see below
-  "points": 3,                  // points for a correct answer (number)
-  "bonus": 1,                   // extra points for the fastest correct answer (number, 0 = none)
+  "points": 3,                  // standard for multiple choice: 3
+  "bonus": 2,                   // fastest correct answer bonus — standard: 2
   "seconds": 15,                // answer time limit (number)
   "imageUrl": ""                // OPTIONAL direct image URL shown as a clue; omit or "" for none
 }
@@ -107,8 +109,8 @@ The players are in the **UK**. Write for them:
   "label": "Question 2",
   "question": "Which ocean is the largest?",
   "textAnswer": "Pacific",      // the accepted answer (matching ignores case/spaces/punctuation)
-  "points": 3,
-  "bonus": 1,
+  "points": 6,                  // standard for typed answers: 6 (typing is harder)
+  "bonus": 2,                   // fastest correct answer bonus — standard: 2
   "seconds": 20,                // typing needs longer; 20-30 is sensible
   "imageUrl": ""                // optional
 }
@@ -134,7 +136,9 @@ The players are in the **UK**. Write for them:
 }
 ```
 
-> **Picking `sliderBand`** — this is the one judgement call. Use `0` when the range is small and people can realistically be exact (a year, an age, a percentage): closest wins outright and it stays cut-throat. Use a band of roughly **2-5% of the range** when the range is huge (millions), where nobody will ever be near and "closest wins" would feel arbitrary — a band lets several people score. Set the range so the true answer is **not** dead in the middle, or it's too guessable.
+> **Picking `sliderBand`** — this is the one judgement call. Use `0` when the range is small and people can realistically be exact (a year, an age, a percentage): closest wins outright and it stays cut-throat. Use a band of roughly **2-5% of the range** when the range is huge (millions), where nobody will ever be near and "closest wins" would feel arbitrary — a band lets several people score.
+
+> **Spread the answers across the ranges.** Players learn the meta fast: if every answer sits near the middle of its slider, parking the thumb at 50% becomes the winning strategy. For each slider compute the position fraction `(sliderAnswer − sliderMin) / (sliderMax − sliderMin)` and **vary it deliberately across the quiz** — some answers down around 0.1–0.3, some up at 0.7–0.9, a few in the middle. Aim for a roughly even spread over ~0.1–0.9 with no clustering (and never outside that, or the answer hugs an endpoint and the slider feels broken). The easiest lever: pick the range *after* the answer, and stretch it asymmetrically — for a 1994 answer, `1950–2010` puts it at 0.73 while `1975–2015` puts it at 0.48; both feel natural to players. The verify step below prints the fractions — fix any clustering before calling it done.
 
 **Song round** — the layered-music buzzer round the app was built around (only use if the user wants music rounds; they play the audio themselves):
 ```jsonc
@@ -175,7 +179,9 @@ The players are in the **UK**. Write for them:
 - **Check the question history first and never repeat** a previously used question, answer, or song (see "Never repeat a question").
 - If there's more than one wager, **use different question types for them**.
 - `points`, `bonus`, `seconds`, `correctIndex` must be **numbers**, not strings.
+- Use the **standard points** unless told otherwise: `question` = 3, `text` = 6, `slider` = 3, `bonus` = 2 on everything.
 - For a `slider`, every `slider*` field must be a **number** (not a string, no commas: `20000000`, never `"20,000,000"`), and `sliderMin < sliderAnswer < sliderMax` — an answer outside the range is unreachable and nobody can win.
+- **Vary where slider answers sit in their ranges** — position fractions spread over ~0.1–0.9, not clustered around the middle (see "Spread the answers across the ranges").
 - Groups come **first** in the array, sudden deaths **last**.
 - Always include **2 sudden-death tie-breakers** by default (see the note under "The JSON shape") unless the user opts out.
 - Don't invent other `type` values. Valid: `group`, `question`, `text`, `slider`, `song`, `sudden`.
@@ -212,9 +218,11 @@ print('sudden:', sum(1 for x in d if x['type'] == 'sudden'))
 ci = collections.Counter(q['correctIndex'] for q in qs if q.get('type') == 'question')
 print('correctIndex spread (0=red 1=blue 2=yellow 3=green):', dict(ci))
 print('wager types:', [q.get('type') for q in qs if q.get('isWager')])
+sl = [q for q in qs if q.get('type') == 'slider']
+print('slider answer positions:', [round((q['sliderAnswer']-q['sliderMin'])/(q['sliderMax']-q['sliderMin']), 2) for q in sl])
 "
 ```
-Expect HTTP 200 on the upload and the counts you intended. **If the correctIndex spread is lopsided (any position with more than ~40% of the questions) or the wagers are all the same type, fix the JSON and re-upload before telling the user you're done.** Then: (1) append the questions to the history store (see above), (2) tell the user to open their game's admin and they'll see the rounds.
+Expect HTTP 200 on the upload and the counts you intended. **If the correctIndex spread is lopsided (any position with more than ~40% of the questions), the wagers are all the same type, or the slider positions cluster (most within ±0.15 of each other, e.g. all hovering near 0.5), fix the JSON and re-upload before telling the user you're done.** Then: (1) append the questions to the history store (see above), (2) tell the user to open their game's admin and they'll see the rounds.
 
 ---
 
