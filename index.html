@@ -359,6 +359,13 @@
 
   /* answer countdown + reaction time inside the buzz flash */
   .qb-countdown{font-family:'Archivo Black',sans-serif;font-size:64px;margin-top:10px;}
+  .qb-countdown.warn{color:#ff9f30;}
+  .qb-countdown.crit{color:#ff3b30;animation:qb-crit-flash .4s steps(2,start) infinite;}
+  /* the phone's own countdown: orange for the last 10s, flashing red for the last 3 */
+  .qb-p-countdown{font-family:'Archivo Black',sans-serif;font-size:42px;line-height:1;}
+  .qb-p-countdown.warn{color:#ff9f30;}
+  .qb-p-countdown.crit{color:#ff3b30;animation:qb-crit-flash .4s steps(2,start) infinite;}
+  @keyframes qb-crit-flash{50%{opacity:.15;}}
   .qb-reaction{font-size:24px;font-weight:700;margin-top:8px;opacity:0.95;}
 
   /* who's locked out this round */
@@ -963,7 +970,13 @@
     reveal(){ tone(392, 0, 0.2, 'triangle', 0.25); tone(330, 0.18, 0.35, 'triangle', 0.25); },
     join(){ tone(880, 0, 0.09, 'sine', 0.2); tone(1175, 0.08, 0.14, 'sine', 0.2); },
     layer(){ tone(587, 0, 0.1, 'triangle', 0.22); tone(659, 0.1, 0.16, 'triangle', 0.22); },
-    timesup(){ for(let i = 0; i < 3; i++){ tone(520, i * 0.3, 0.24, 'square', 0.4, 480); tone(260, i * 0.3, 0.24, 'sawtooth', 0.35, 240); } }
+    timesup(){ for(let i = 0; i < 3; i++){ tone(520, i * 0.3, 0.24, 'square', 0.4, 480); tone(260, i * 0.3, 0.24, 'sawtooth', 0.35, 240); } },
+    // the projector countdown's once-a-second ticks: soft blip, then urgent,
+    // then critical — played by the display (the room's speaker), never phones,
+    // so every ear hears one clock and per-phone drift doesn't matter
+    tick(){ tone(1100, 0, 0.03, 'sine', 0.12); },
+    tickWarn(){ tone(1400, 0, 0.05, 'square', 0.16); },
+    tickCrit(){ tone(1760, 0, 0.07, 'square', 0.22); tone(880, 0, 0.07, 'square', 0.15); }
   };
 
   // every player gets their own comedy buzzer, assigned at random when they join
@@ -1265,6 +1278,9 @@
   // ---------- PLAYER ----------
   let playerPoll = null;
   let prevPlayerSound = null;
+  let playerQTimer = null;    // this phone's question countdown, anchored like displayQTimer
+  let playerBuzzTimer = null; // 15s to answer after *my* buzz on a song round
+  let playerTickLoop = null;  // fine ticker that repaints and beeps the countdown
   let playerSeq = 0;   // stale-render ticket, same idea as the display's
   // The 800ms poll used to rebuild the whole phone screen, which restarts any
   // <img> load and throws away a half-dragged slider. So each render fingerprints
@@ -1333,6 +1349,26 @@
     }
     if(seq !== playerSeq) return;
     const pot = kittyTotal(state);
+
+    // this phone's countdown mirrors the projector's: anchored the first time
+    // this tab sees the epoch, never reset by a transient failed poll
+    if(answering && !state.reviewing){
+      if(!playerQTimer || playerQTimer.epoch !== state.answerEpoch){
+        playerQTimer = { epoch: state.answerEpoch, endsAt: Date.now() + (state.qSeconds || QUESTION_SECONDS) * 1000 };
+      }
+    } else {
+      playerQTimer = null;
+    }
+    if(iBuzzedIn){
+      const key = (state.buzzEpoch || '') + ':' + liveBuzz.id;
+      if(!playerBuzzTimer || playerBuzzTimer.key !== key){
+        playerBuzzTimer = { key, endsAt: Date.now() + ANSWER_SECONDS * 1000 };
+      }
+    } else if(liveBuzz || state.status !== 'live' || !playerBuzzTimer || playerBuzzTimer.key.indexOf((state.buzzEpoch || '') + ':') !== 0){
+      // someone else buzzed, or the round moved on — but a single failed buzz
+      // fetch must NOT reset the countdown (same rule as the display)
+      playerBuzzTimer = null;
+    }
 
     // phones only make sound for things that happened to *this* player;
     // the room-wide sounds come from the display
@@ -1413,6 +1449,14 @@
       ? `<img class="qb-qimage phone" src="${esc(state.qImage)}" alt="clue" onerror="this.style.display='none'" />` : '';
     const kittyNoteHTML = state.wagerActive
       ? `<div class="qb-status-sub">💰 <span id="qb-p-kitty">${pot}</span>-point kitty to whoever wins this!</div>` : '';
+    // bake the *current* remaining seconds into each render — a repaint must
+    // never visually reset the clock; the fine ticker keeps it moving between
+    // renders and this value is deliberately NOT in the shape fingerprint
+    const cdClassFor = r => r <= 3 ? 'crit' : r <= 10 ? 'warn' : '';
+    const remainQ = playerQTimer ? Math.max(0, Math.ceil((playerQTimer.endsAt - Date.now()) / 1000)) : (state.qSeconds || QUESTION_SECONDS);
+    const qCountdownHTML = `<div class="qb-p-countdown ${cdClassFor(remainQ)}" id="qb-p-countdown">${remainQ}</div>`;
+    const remainBuzz = playerBuzzTimer ? Math.max(0, Math.ceil((playerBuzzTimer.endsAt - Date.now()) / 1000)) : ANSWER_SECONDS;
+    const buzzCountdownHTML = iBuzzedIn ? `<div class="qb-p-countdown ${cdClassFor(remainBuzz)}" id="qb-p-countdown">${remainBuzz}</div>` : '';
 
     // betting and question rounds replace the buzzer with their own controls
     let centreHTML;
@@ -1453,6 +1497,7 @@
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${qCountdownHTML}
           ${qImageHTML}
           ${kittyNoteHTML}
           <div class="qb-slider-readout" id="qb-slider-val">${esc(fmtGuess(value, state.sliderUnit, groupNums(state.sliderMax)))}</div>
@@ -1474,6 +1519,7 @@
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${qCountdownHTML}
           ${qImageHTML}
           ${kittyNoteHTML}
           ${myAnswer ? `
@@ -1489,6 +1535,7 @@
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
+          ${qCountdownHTML}
           ${qImageHTML}
           ${kittyNoteHTML}
           ${myAnswer ? `
@@ -1511,6 +1558,7 @@
         <div class="qb-buzzer-wrap">
           ${stagePill}
           <button class="qb-buzzer" data-action="buzz" ${buzzerDisabled ? 'disabled' : ''}>BUZZ</button>
+          ${buzzCountdownHTML}
           <div class="qb-status-line">${statusLine}</div>
           <div class="qb-status-sub">${statusSub}</div>
         </div>
@@ -1579,6 +1627,21 @@
       playerPoll = setInterval(() => {
         if(view === 'player' && bucket) renderPlayer();
       }, 800);
+      // fine ticker for the countdown: repaints the number/colour in place (the
+      // 800ms poll deliberately leaves it alone). Visual only — the tick SOUNDS
+      // come from the display, the room's one shared clock, so phones can drift
+      // a second without the room hearing it
+      playerTickLoop = setInterval(() => {
+        if(view !== 'player') return;
+        if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+        const t = playerQTimer || playerBuzzTimer;
+        const el = document.getElementById('qb-p-countdown');
+        if(!t || !el) return;
+        const remain = Math.max(0, Math.ceil((t.endsAt - Date.now()) / 1000));
+        el.textContent = remain;
+        el.classList.toggle('warn', remain <= 10 && remain > 3);
+        el.classList.toggle('crit', remain <= 3);
+      }, 200);
     }
   }
 
@@ -1835,10 +1898,24 @@
         // keep the cast tab's audio alive: browsers quietly suspend the context
         // on backgrounded/cast tabs, which is what silences the projector mid-game
         if(soundOn && audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(()=>{});
+        // the display is the room's one shared clock, so IT does the tick
+        // sounds (phones only show the numbers): a soft blip each second,
+        // urgent in the last 10, critical in the last 3, and colours to match
+        const tickCountdown = (timer, el) => {
+          const remain = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
+          if(el){
+            el.textContent = remain;
+            el.classList.toggle('warn', remain <= 10 && remain > 3);
+            el.classList.toggle('crit', remain <= 3);
+          }
+          if(el && remain !== timer.lastBeep){
+            timer.lastBeep = remain;
+            if(remain > 0) playSound(remain <= 3 ? 'tickCrit' : remain <= 10 ? 'tickWarn' : 'tick');
+          }
+          return remain;
+        };
         if(displayBuzzTimer){
-          const remain = Math.max(0, Math.ceil((displayBuzzTimer.endsAt - Date.now()) / 1000));
-          const el = document.getElementById('qb-countdown');
-          if(el) el.textContent = remain;
+          const remain = tickCountdown(displayBuzzTimer, document.getElementById('qb-countdown'));
           if(remain === 0 && !displayBuzzTimer.fired){
             displayBuzzTimer.fired = true;
             playSound('timesup');
@@ -1846,9 +1923,7 @@
           }
         }
         if(displayQTimer){
-          const remain = Math.max(0, Math.ceil((displayQTimer.endsAt - Date.now()) / 1000));
-          const el = document.getElementById('qb-qcountdown');
-          if(el) el.textContent = remain;
+          const remain = tickCountdown(displayQTimer, document.getElementById('qb-qcountdown'));
           if(remain === 0 && !displayQTimer.fired){
             displayQTimer.fired = true;
             playSound('timesup');
@@ -2007,7 +2082,7 @@
       ` : `
         <div class="qb-question-text">${esc(state.question || '')}</div>
         ${state.qImage ? `<img class="qb-qimage" src="${esc(state.qImage)}" alt="clue" onerror="this.style.display='none'" />` : ''}
-        <div class="qb-countdown" id="qb-qcountdown" style="margin:0 0 18px;">${remainQ}</div>
+        <div class="qb-countdown ${remainQ <= 3 ? 'crit' : remainQ <= 10 ? 'warn' : ''}" id="qb-qcountdown" style="margin:0 0 18px;">${remainQ}</div>
         ${state.sliderMode ? `
           <div class="qb-clue-box" style="border-style:solid;">
             🎚️ Slide to your guess on your phone &mdash; anywhere from
@@ -2119,7 +2194,7 @@
           <div class="qb-buzz-avatar">${buzz.avatar || ''}</div>
           <div class="who">${esc(buzz.name || 'Someone')}</div>
           ${rt ? `<div class="qb-reaction">⚡ buzzed in ${rt}s</div>` : ''}
-          <div class="qb-countdown" id="qb-countdown">${remain}</div>
+          <div class="qb-countdown ${remain <= 3 ? 'crit' : remain <= 10 ? 'warn' : ''}" id="qb-countdown">${remain}</div>
         </div>
       `;
     } else if(state.status === 'live'){
