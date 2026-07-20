@@ -1657,6 +1657,7 @@
     if(!Number.isFinite(value)) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
+    playBuzzFor(me || { id: myPlayerId });   // locking an answer sounds like YOU, not a generic blip
     try{
       await fetch(answerUrl(state.answerEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
         id: myPlayerId,
@@ -1666,7 +1667,6 @@
         ts: { '.sv':'timestamp' }
       }) });
     }catch(e){ console.error(e); }
-    playSound('join');
     renderPlayer();
   }
 
@@ -1681,6 +1681,7 @@
     if(!state.qMode || !state.textMode || state.status !== 'live' || state.reviewing || !state.answerEpoch) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
+    playBuzzFor(me || { id: myPlayerId });   // locking an answer sounds like YOU, not a generic blip
     try{
       await fetch(answerUrl(state.answerEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
         id: myPlayerId,
@@ -1690,7 +1691,6 @@
         ts: { '.sv':'timestamp' }
       }) });
     }catch(e){ console.error(e); }
-    playSound('join');
     renderPlayer();
   }
 
@@ -1701,6 +1701,7 @@
     if(!state.qMode || state.status !== 'live' || !state.answerEpoch) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
+    playBuzzFor(me || { id: myPlayerId });   // locking an answer sounds like YOU, not a generic blip
     try{
       await fetch(answerUrl(state.answerEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
         id: myPlayerId,
@@ -1710,7 +1711,6 @@
         ts: { '.sv':'timestamp' }
       }) });
     }catch(e){ console.error(e); }
-    playSound('join');
     renderPlayer();
   }
 
@@ -2217,6 +2217,10 @@
   let adminPoll = null;
   let adminSeq = 0;   // stale-render ticket, same idea as the display's
   let adminQTimer = null;   // question countdown; fires the automatic scoring
+  // everyone has answered: end the question a beat later without the host
+  // clicking anything. MC + slider only — typed answers can be changed right up
+  // to the whistle, so auto-ending a text round would eat those edits.
+  let adminAutoEnd = null;
   let adminTick = null;
   let adminBuzzTimer = null;
   let prevAllDecided = null;   // anteEpoch we've already chimed "everyone's bet" for
@@ -3613,6 +3617,18 @@
     } else {
       adminQTimer = null;
     }
+    // all in? end the question early after a 2s beat (adminTick fires it), so
+    // the host never has to click "end it now". Not for text rounds — typed
+    // answers can be revised until the clock runs out.
+    const allIn = answering && !state.reviewing && !state.textMode && players.length > 0
+      && Object.values(liveAnswers).filter(a => a && a.id).length >= players.length;
+    if(allIn){
+      if(!adminAutoEnd || adminAutoEnd.epoch !== state.answerEpoch){
+        adminAutoEnd = { epoch: state.answerEpoch, at: Date.now() + 2000, fired: false };
+      }
+    } else {
+      adminAutoEnd = null;   // includes a late joiner pushing the count back under
+    }
 
     // if the admin tab was refreshed mid-review, rebuild the verdicts from the auto-matches
     if(state.reviewing && !reviewMarks){
@@ -3680,7 +3696,8 @@
                 ? `Guesses lock in when the ${state.qSeconds || QUESTION_SECONDS}s are up, then it scores itself &mdash; closest to ${esc(fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax)))} wins${state.sliderBand ? `, plus anyone within ±${esc(fmtNum(state.sliderBand, groupNums(state.sliderMax)))}` : ''}`
                 : `Answers lock in automatically when the ${state.qSeconds || QUESTION_SECONDS}s are up`}</div>
             <div class="who">${answeredList.length} of ${players.length} ${state.sliderMode ? 'guessed' : 'answered'}</div>
-            <button class="qb-btn qb-btn-gold" data-action="end-question">Everyone's in &mdash; end it now</button>
+            ${adminAutoEnd && !state.textMode ? `<div class="qb-small" style="color:var(--gold);">🚦 Everyone's in &mdash; ending automatically&hellip;</div>` : ''}
+            <button class="qb-btn qb-btn-gold" data-action="end-question">${state.textMode ? "Everyone's in &mdash; end it now" : 'End it now'}</button>
           </div>
         `;
       }
@@ -3950,6 +3967,13 @@
         // question round: when this tab's clock runs out, score it exactly once
         if(adminQTimer && !adminQTimer.fired && Date.now() >= adminQTimer.endsAt){
           adminQTimer.fired = true;
+          scoreQuestion(false);
+        }
+        // everyone answered: end it 2s later without waiting for the clock.
+        // Guard both timers so the full-time scorer can't double-fire on top.
+        if(adminAutoEnd && !adminAutoEnd.fired && Date.now() >= adminAutoEnd.at){
+          adminAutoEnd.fired = true;
+          if(adminQTimer) adminQTimer.fired = true;
           scoreQuestion(false);
         }
       }, 250);

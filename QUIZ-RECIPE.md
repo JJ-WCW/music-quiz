@@ -39,14 +39,24 @@ curl -s -X PATCH \
   --data-binary @history-append.json -w "\nHTTP %{http_code}\n"
 ```
 
-where `history-append.json` maps a slug (lowercase letters/digits of the question, ≤60 chars) to one entry each:
+where `history-append.json` maps a slug (lowercase letters/digits of the question **plus the answer** — the answer matters because picture rounds reuse wording like "Who is this?" — ≤80 chars) to one entry each:
 
 ```jsonc
 {
-  "whatisthecapitalofaustralia": { "q": "What is the capital of Australia?", "a": "Canberra", "t": "question", "quiz": "<GAME_CODE>", "date": "2026-07-19" },
-  "songdontstopmenowqueen":      { "q": "SONG: Don't Stop Me Now — Queen", "a": "", "t": "song", "quiz": "<GAME_CODE>", "date": "2026-07-19" }
+  "whatisthecapitalofaustraliacanberra": { "q": "What is the capital of Australia?", "a": "Canberra", "t": "question", "quiz": "<GAME_CODE>", "date": "2026-07-19" },
+  "songdontstopmenowqueen":              { "q": "SONG: Don't Stop Me Now — Queen", "a": "", "t": "song", "quiz": "<GAME_CODE>", "date": "2026-07-19" }
 }
 ```
+
+## House style: this is a UK quiz
+
+The players are in the **UK**. Write for them:
+
+- **British spellings** everywhere ("colour", "theatre", "aluminium"), £ not $, metric-first (with imperial only where Brits genuinely use it — miles, pints).
+- **UK framing for ambiguous questions**: "the charts" means the UK charts, "the top flight" means the Premier League, "the government" means Westminster. Football means ⚽.
+- **No obscure Americana** — nothing that assumes US schooling or US-only culture (state capitals, NFL/NBA/MLB trivia, US TV networks, "grade school" framing). Globally famous American things are fine: US presidents, Hollywood, NASA, global pop culture.
+- Pop culture (films, TV, music) is global anyway — no need to force Britishness onto it, just don't lean American where a neutral phrasing exists.
+- UK-flavoured material is actively good: British music, British TV and sitcoms, UK geography, royal history — it plays well in the room.
 
 ## The JSON shape
 
@@ -207,6 +217,21 @@ print('wager types:', [q.get('type') for q in qs if q.get('isWager')])
 Expect HTTP 200 on the upload and the counts you intended. **If the correctIndex spread is lopsided (any position with more than ~40% of the questions) or the wagers are all the same type, fix the JSON and re-upload before telling the user you're done.** Then: (1) append the questions to the history store (see above), (2) tell the user to open their game's admin and they'll see the rounds.
 
 ---
+
+## "Help me build a quiz" — the guided flow
+
+If the user asks for help designing the quiz (rather than handing you a fixed round list), **don't interrogate them with many questions — make one good proposal they can edit.** Reply with:
+
+1. **A menu of categories** (tick-list style), grouped so it's easy to answer. Offer the ones that have worked before plus fresh ideas, e.g.:
+   - **Music**: song intro rounds (they play the audio), guess the year, name the album (cover picture), one-hit wonders, Britpop / 90s / 00s decades
+   - **Pictures**: who is this? (celebrities / celebrities as kids), name the landmark, what animal is this, name the painting, whose flag is this
+   - **Film & TV**: movie quotes, British sitcoms, TV theme knowledge, James Bond, kids' films
+   - **Knowledge**: general knowledge, geography, history, science & nature, sport, food & drink, true or false
+   - **Numbers**: a slider-only round — "how many / how tall / what year" guessing
+2. **A suggested structure** they can say yes to: e.g. 4 rounds × 10 questions, a mix of multiple choice / typed / slider inside each round, 1–2 wagers on different question types, 2 sudden deaths. Ask which categories they fancy, roughly how many rounds/questions, and whether they want song rounds at all.
+3. Then **wait for their answer**, build to it, and follow every rule in this file (history check first, UK slant, spread `correctIndex`, varied wagers, verify, append history).
+
+Category ideas that repeat well **as formats** (picture rounds, guess the year) are fine to reuse across quiz nights — it's the individual questions that must never repeat, which is what the history store enforces.
 
 ## Copy-paste prompt for the user
 
