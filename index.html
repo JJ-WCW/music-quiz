@@ -613,6 +613,9 @@
       // players may bet points into a kitty; whoever wins the question takes the
       // otherwise it's gone. Betting is optional, everyone keeps their buzzer.
       wagerActive:false, wagerPhase:'', anteEpoch:'', wagerClue:null, wagerImage:null, bets:{}, betWon:0, betsLost:0,
+      // betMatched: the house matched a lone bet (see loneBetBonus) — only used
+      // for the reveal-screen messaging, the points are already inside betWon
+      betMatched:0,
       // an unwon kitty isn't burned: it rolls into the next wager round and keeps
       // growing until somebody finally wins it. Survives round loads (see
       // loadRoundToPlay) exactly like quizTitle does. kittyRolled is just the
@@ -816,6 +819,15 @@
   // over from wager rounds nobody won.
   function kittyTotal(s){
     return Object.values(s.bets || {}).reduce((t, n) => t + n, 0) + (s.carryKitty || 0);
+  }
+  // Betting alone used to be pointless: the only stake in the pot was your own,
+  // so "winning the kitty" just handed your points straight back. Now the house
+  // matches a lone bet — if exactly one player staked and THEY win the question,
+  // they're paid their stake a second time on top of the pot. Lose and it still
+  // rolls over as usual, so a brave solo bet is a real double-or-nothing.
+  function loneBetBonus(s, winnerId){
+    const ids = Object.keys(s.bets || {});
+    return (ids.length === 1 && ids[0] === winnerId) ? (s.bets[ids[0]] || 0) : 0;
   }
 
   // ---------- slider rounds ----------
@@ -1345,7 +1357,7 @@
         : ((state.qAnswers || [])[state.qCorrect] || '');
       statusLine = `The answer was ${esc(shown)}`;
       if(mine && mine.correct){
-        const why = mine.kitty ? ` — and you scooped the ${mine.kitty}-point kitty! 💰`
+        const why = mine.kitty ? ` — and you scooped the ${mine.kitty}-point kitty!${state.betMatched ? ' Lone bet, house-doubled! 🎰' : ''} 💰`
           : mine.bullseye ? ' — bullseye! 🎯'
           : mine.fastest ? ' — fastest answer, bonus included 🥇' : '';
         statusSub = `✅ You got it! +${mine.won} points${why}`;
@@ -1358,7 +1370,7 @@
       statusLine = `It was ${esc(state.songTitle || '')}${state.artist ? ` by ${esc(state.artist)}` : ''}`;
       const iBet = (state.bets || {})[myPlayerId] || 0;
       if(state.winnerId === myPlayerId){
-        statusSub = `You got it! +${state.pointsAwarded} points${state.betWon ? ` and you scooped the ${state.betWon}-point kitty!` : ''}`;
+        statusSub = `You got it! +${state.pointsAwarded} points${state.betWon ? ` and you scooped the ${state.betWon}-point kitty!${state.betMatched ? ' Lone bet, house-doubled! 🎰' : ''}` : ''}`;
       } else if(state.winnerId){
         statusSub = `${state.winnerName || 'Someone'} got it first${iBet ? ` — your ${iBet}-point bet went into their kitty` : ''}`;
       } else {
@@ -1414,7 +1426,7 @@
             <div class="qb-status-sub" style="font-size:16px;">You've put ${myBet.amount} pt${myBet.amount===1?'':'s'} in the kitty. Win this and you take the whole pot!</div>
             <button class="qb-btn qb-btn-ghost" data-action="cancel-bet">Withdraw my bet</button>
           ` : `
-            <div class="qb-status-sub" style="font-size:16px;">Reckon you know it from the clue? Bet up to ${MAX_BET} points into the kitty &mdash; whoever wins this takes the lot. You're allowed to go into minus points!</div>
+            <div class="qb-status-sub" style="font-size:16px;">Reckon you know it from the clue? Bet up to ${MAX_BET} points into the kitty &mdash; whoever wins this takes the lot. You're allowed to go into minus points! And if you're the <strong>only</strong> one who bets and you win, the house <strong>doubles your stake</strong>.</div>
             <input class="qb-input" id="qb-bet-amount" type="number" inputmode="numeric" min="1" max="${MAX_BET}" placeholder="Points to bet (max ${MAX_BET})" style="text-align:center;" />
             <button class="qb-btn qb-btn-gold" data-action="place-bet">Lock in my bet</button>
             <button class="qb-btn qb-btn-ghost" data-action="pass-bet">🚫 No bet &mdash; I'm out</button>
@@ -1736,7 +1748,7 @@
   // what happened to the kitty, for the reveal screen. An unwon kitty isn't
   // burned any more — it rolls into the next wager, which is worth shouting about.
   function kittyLineHTML(s){
-    if(s.betWon) return `<div class="qb-pot-line">💰 ${esc(s.kittyWinnerName || s.winnerName || 'Someone')} scooped the ${s.betWon}-point kitty!</div>`;
+    if(s.betWon) return `<div class="qb-pot-line">💰 ${esc(s.kittyWinnerName || s.winnerName || 'Someone')} scooped the ${s.betWon}-point kitty!${s.betMatched ? ` <strong>Only they dared to bet &mdash; the house doubled their ${s.betMatched}-point stake!</strong>` : ''}</div>`;
     if(s.kittyRolled) return `<div class="qb-pot-line roll">💰 Nobody got it &mdash; the ${s.kittyRolled}-point kitty <strong>rolls over to the next wager round!</strong></div>`;
     return '';
   }
@@ -1974,6 +1986,7 @@
             <li>When betting closes, the question or song plays <strong>as normal</strong>.</li>
             <li>All bets pile into one <strong>kitty</strong>. Whoever wins this question <strong>takes the whole kitty</strong>, on top of the normal points.</li>
             <li>If nobody gets it, the kitty <strong>rolls over to the next wager</strong> and keeps growing. Someone else wins? They pocket your stake.</li>
+            <li>🐔 <strong>Only one of you brave enough to bet?</strong> If they win it, the house <strong>doubles their stake</strong> &mdash; a solo bet is real double-or-nothing.</li>
             <li>Betting is optional: everyone keeps their buzzer either way.</li>
           </ol>
         </div>
@@ -2902,8 +2915,9 @@
     if(half) points = Math.ceil(points / 2);
     // wager rounds are winner-takes-all: the round winner scoops the whole
     // kitty (everyone's stakes, including their own if they bet, plus anything
-    // that rolled over from a wager nobody won)
-    const kitty = s.wagerActive ? kittyTotal(s) : 0;
+    // that rolled over from a wager nobody won). A lone bet is house-matched.
+    const matched = s.wagerActive ? loneBetBonus(s, buzz.id) : 0;
+    const kitty = s.wagerActive ? kittyTotal(s) + matched : 0;
     const players = await getPlayers();
     const p = players.find(pl => pl.id === buzz.id);
     if(p){
@@ -2918,6 +2932,7 @@
     s.winnerAvatar = buzz.avatar;
     s.pointsAwarded = points;
     s.betWon = kitty;
+    s.betMatched = matched;
     if(s.wagerActive){
       s.betsLost = 0; s.kittyRolled = 0; s.carryKitty = 0;  // the pot's been claimed, nothing carries on
       s.wagerActive = false;
@@ -2935,20 +2950,25 @@
     s.kittyRolled = total;
     s.carryKitty = total;
     s.betWon = 0;
+    s.betMatched = 0;
     s.wagerActive = false;
   }
   // wager question rounds: the best correct answer takes the whole kitty
   // (rightOnes arrives already ranked); if nobody got it, the pot rolls over
   function settleKitty(s, rightOnes, players){
     if(!s.wagerActive) return;
-    const kitty = kittyTotal(s);
     if(rightOnes.length){
+      const w = rightOnes[0];
+      // a lone bet is house-matched: winning your own solo stake back would
+      // otherwise be a net nothing (see loneBetBonus)
+      const matched = loneBetBonus(s, w.id);
+      const kitty = kittyTotal(s) + matched;
       if(kitty){
-        const w = rightOnes[0];
         w.kitty = kitty;
         const p = players.find(pl => pl.id === w.id);
         if(p) p.score = (p.score || 0) + kitty;
         s.betWon = kitty;
+        s.betMatched = matched;
         s.kittyWinnerName = w.name || '';
       }
       s.carryKitty = 0;
@@ -3368,7 +3388,7 @@
           <input class="qb-input" id="qb-round-clue" placeholder="e.g. This one takes you back to summer 1997…" value="${esc(formClue)}" />
           <label class="qb-label">Clue image (optional &mdash; direct picture URL)</label>
           <input class="qb-input" id="qb-round-clue-image" placeholder="https://…" value="${esc(formClueImage)}" />
-          <p class="qb-small" style="margin:0 0 16px;">Bets go into a kitty (max ${MAX_BET} points each, going into the minus is allowed). Whoever wins this question takes the whole kitty. Betting is optional &mdash; everyone still plays.</p>
+          <p class="qb-small" style="margin:0 0 16px;">Bets go into a kitty (max ${MAX_BET} points each, going into the minus is allowed). Whoever wins this question takes the whole kitty &mdash; and a lone bettor who wins gets their stake doubled by the house. Betting is optional &mdash; everyone still plays.</p>
         ` : ''}
         `}
         <div class="qb-row-2" style="max-width:440px;">

@@ -18,6 +18,36 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 2. To also set the **quiz title** (optional), `PUT` a JSON string to `/games/<CODE>/qb-state/quizTitle.json` — e.g. body `"Music + Trivia"`.
 3. **Writing `qb-rounds` replaces the whole library** for that code. If they want to *add* to an existing quiz, first `GET` the current `qb-rounds.json`, merge, then `PUT` the whole thing back.
 
+## Never repeat a question from a previous quiz night
+
+The database keeps a history of every question ever used, at `/games/qhistory/asked.json` (that's a reserved pseudo-game-code, not a real game — never write rounds to it). **This is a hard requirement, not a nice-to-have:** repeated questions have happened before and the players notice immediately.
+
+**BEFORE writing any questions**, pull the history:
+
+```bash
+curl -s "https://music-quiz-cac11-default-rtdb.europe-west1.firebasedatabase.app/games/qhistory/asked.json" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin) or {}; [print(f\"- {v.get('q')}  →  {v.get('a')}\") for v in d.values()]"
+```
+
+Read the list and **avoid semantic repeats, not just exact ones** — "What year did the first iPhone launch?" and "When did Apple release the original iPhone?" are the same question; a song already used in a song round shouldn't come back as a trivia answer either. If a topic overlaps, find a genuinely different fact about it.
+
+**AFTER a verified upload**, append everything you used (every question, text, slider, sudden death, and song — one entry per item) with a merge `PATCH` (never `PUT` — a `PUT` would wipe the history):
+
+```bash
+curl -s -X PATCH \
+  "https://music-quiz-cac11-default-rtdb.europe-west1.firebasedatabase.app/games/qhistory/asked.json" \
+  --data-binary @history-append.json -w "\nHTTP %{http_code}\n"
+```
+
+where `history-append.json` maps a slug (lowercase letters/digits of the question, ≤60 chars) to one entry each:
+
+```jsonc
+{
+  "whatisthecapitalofaustralia": { "q": "What is the capital of Australia?", "a": "Canberra", "t": "question", "quiz": "<GAME_CODE>", "date": "2026-07-19" },
+  "songdontstopmenowqueen":      { "q": "SONG: Don't Stop Me Now — Queen", "a": "", "t": "song", "quiz": "<GAME_CODE>", "date": "2026-07-19" }
+}
+```
+
 ## The JSON shape
 
 `qb-rounds` is a JSON **array** containing, in this order: all the **round groups** first, then any **sudden-death** tie-breakers.
@@ -47,7 +77,7 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
   "label": "Question 1",        // keep as "Question N" within its round
   "question": "What is the capital of Australia?",
   "answers": ["Canberra", "Sydney", "Melbourne", "Perth"],  // EXACTLY 4 strings
-  "correctIndex": 0,            // 0-3, index of the right answer in the array
+  "correctIndex": 0,            // 0-3 — MUST vary from question to question, see below
   "points": 3,                  // points for a correct answer (number)
   "bonus": 1,                   // extra points for the fastest correct answer (number, 0 = none)
   "seconds": 15,                // answer time limit (number)
@@ -55,7 +85,9 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 }
 ```
 
-> **Wagers work on ANY question type** (multiple choice, text, slider, or song — not sudden death). Add these three fields to any question to make it a betting round: `"isWager": true, "wagerClue": "a teasing hint shown BEFORE the question is revealed", "wagerImage": ""` (optional picture). Players bet points into a kitty off the clue alone, then the question plays as normal and **whoever wins it takes the whole kitty**. If nobody wins it, the kitty **rolls over into the next wager round** and keeps growing. Use sparingly — one or two per quiz.
+> **Randomise `correctIndex`.** The four answers show as coloured buttons (0=red, 1=blue, 2=yellow, 3=green) — if you write every question with the right answer first, the right answer is *always red* and players notice within two questions. Spread the correct answers roughly evenly across all four positions over each round, and never put the correct answer in the same position more than twice in a row. Easiest method: write each question with the correct answer first, then rotate/shuffle the array and set `correctIndex` to where it landed. The verify step below checks this.
+
+> **Wagers work on ANY question type** (multiple choice, text, slider, or song — not sudden death). Add these three fields to any question to make it a betting round: `"isWager": true, "wagerClue": "a teasing hint shown BEFORE the question is revealed", "wagerImage": ""` (optional picture). Players bet points into a kitty off the clue alone, then the question plays as normal and **whoever wins it takes the whole kitty** (a lone bettor who wins gets their stake doubled by the house, so solo bets still pay). If nobody wins it, the kitty **rolls over into the next wager round** and keeps growing. Use sparingly — one or two per quiz — and **vary which question type carries the wager**: if a quiz has two wagers, make them two *different* types (e.g. one multiple choice, one slider), and across quiz nights don't default to the same type every time.
 
 **Type-the-answer** — everyone types a free-text answer; the host approves near-misses:
 ```jsonc
@@ -129,6 +161,9 @@ You generate the questions, shape them into the JSON below, and `PUT` that JSON 
 
 - Every `id` must be **unique across the entire file** (groups, questions, sudden deaths).
 - `answers` for a `question` must be **exactly 4** strings; `correctIndex` in **0-3**.
+- **Spread `correctIndex` across all four positions** — never mostly one value (see the note under Multiple choice).
+- **Check the question history first and never repeat** a previously used question, answer, or song (see "Never repeat a question").
+- If there's more than one wager, **use different question types for them**.
 - `points`, `bonus`, `seconds`, `correctIndex` must be **numbers**, not strings.
 - For a `slider`, every `slider*` field must be a **number** (not a string, no commas: `20000000`, never `"20,000,000"`), and `sliderMin < sliderAnswer < sliderMax` — an answer outside the range is unreachable and nobody can win.
 - Groups come **first** in the array, sudden deaths **last**.
@@ -156,12 +191,20 @@ curl -X PUT \
 
 ## Verify before telling the user you're done
 
-Read it back and sanity-check counts:
+Read it back and sanity-check counts, the correct-answer spread, and the wager mix:
 ```bash
-curl -s "https://music-quiz-cac11-default-rtdb.europe-west1.firebasedatabase.app/games/<GAME_CODE>/qb-rounds.json" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print([ (g.get('name'), len(g.get('questions',[]))) for g in d if g['type']=='group']); print('sudden:', sum(1 for x in d if x['type']=='sudden'))"
+curl -s "https://music-quiz-cac11-default-rtdb.europe-west1.firebasedatabase.app/games/<GAME_CODE>/qb-rounds.json" | python3 -c "
+import sys, json, collections
+d = json.load(sys.stdin)
+qs = [q for g in d if g['type'] == 'group' for q in g.get('questions', [])]
+print('rounds:', [(g.get('name'), len(g.get('questions', []))) for g in d if g['type'] == 'group'])
+print('sudden:', sum(1 for x in d if x['type'] == 'sudden'))
+ci = collections.Counter(q['correctIndex'] for q in qs if q.get('type') == 'question')
+print('correctIndex spread (0=red 1=blue 2=yellow 3=green):', dict(ci))
+print('wager types:', [q.get('type') for q in qs if q.get('isWager')])
+"
 ```
-Expect HTTP 200 on the upload and the round/question counts you intended. Then tell the user to open their game's admin and they'll see the rounds; nothing else to do.
+Expect HTTP 200 on the upload and the counts you intended. **If the correctIndex spread is lopsided (any position with more than ~40% of the questions) or the wagers are all the same type, fix the JSON and re-upload before telling the user you're done.** Then: (1) append the questions to the history store (see above), (2) tell the user to open their game's admin and they'll see the rounds.
 
 ---
 
