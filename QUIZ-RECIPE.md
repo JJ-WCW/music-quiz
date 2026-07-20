@@ -226,18 +226,70 @@ Expect HTTP 200 on the upload and the counts you intended. **If the correctIndex
 
 ---
 
+## The format menu — question styles that need NO new code
+
+Every format here is just phrasing layered on the four existing types (`question`, `text`, `slider`, `song`) plus the existing `imageUrl` field — the app never changes. Mix them freely inside a round, or build a themed round from a single format (a whole anagram round, a whole odd-one-out round — both play great).
+
+**Typed formats (`text`):**
+
+| Format | Example |
+|---|---|
+| **Fill in the blank** | "Complete the proverb: 'Red sky at night, ___'s delight'" → *Shepherd* |
+| **Anagram** | "Rearrange the letters of LEMON to get another fruit" → *Melon* |
+| **Missing vowels** | "80s band: BLND" → *Blondie* — always give the category |
+| **Initials** | "Name the 1966 western: TGTBATU" → *The Good, the Bad and the Ugly* |
+| **Word link** | "Which word can follow 'honey' and precede 'light'?" → *Moon* |
+| **Sequence** | "Blair, Brown, Cameron, ___?" → *May* |
+| **Spell it** | "Spell the word for a scientist who studies weather" → *Meteorologist* |
+
+**Multiple-choice formats (`question`):**
+
+| Format | Example |
+|---|---|
+| **Odd one out** | "Which of these is NOT a UK peak?" — Snowdon / Ben Nevis / Scafell Pike / *Table Mountain* |
+| **Who said it?** | A famous quote, four possible speakers |
+| **Which came first?** | Four events, pick the earliest — *Titanic sinks* / penicillin / Wall Street Crash / first TV broadcast |
+| **Spot the truth** | Four statements, exactly one is true (or flip it: three true, spot the lie) |
+| **Real or fake** | "Which of these is a real Ben & Jerry's flavour?" — one real among three invented |
+
+> True-or-false doesn't fit the app's fixed four buttons — use "Spot the truth"/"Real or fake" instead, which are better questions anyway.
+
+**Slider formats (`slider`):**
+
+| Format | Example |
+|---|---|
+| **The price tag** | "What did the record football transfer fee cost, in £ millions?" — auction prices, transfer fees, house prices |
+| **The percentages game** | "What percentage of Brits are left-handed?" (`sliderUnit: "%"`) — use real survey/statistical figures only |
+| **Guess the year / how many / how far** | The classic slider fare — see the slider section above |
+
+**Picture formats (any type + `imageUrl`):**
+
+| Format | Example |
+|---|---|
+| **Locator map** | Wikipedia locator map ("Country X in Europe.svg") + "Which country is highlighted?" |
+| **Name the logo** | Company logo from Wikipedia + typed answer |
+| **Who/what/where is this?** | Celebrities, animals, landmarks, paintings, album covers — the established picture round |
+
+**Format-specific pitfalls:**
+
+- **Anagrams and missing vowels: letter-check every one** — sort the letters of both sides and compare (anagrams), strip vowels and compare (missing vowels). A puzzle that doesn't resolve ruins the round.
+- Answer matching ignores case, so **spell-it questions can't test capitalisation**, only letters.
+- For fill-in-the-blanks, quote **proverbs, idioms, mottos, famous speeches, film taglines** — don't reproduce song lyrics or other copyrighted lines.
+- Sequences need exactly one defensible answer — chronological or canonical orders only.
+
 ## "Help me build a quiz" — the guided flow
 
-If the user asks for help designing the quiz (rather than handing you a fixed round list), **don't interrogate them with many questions — make one good proposal they can edit.** Reply with:
+If the user asks for help designing the quiz (rather than handing you a fixed round list), **don't interrogate them with many questions — lay out the menus, make one good proposal they can edit, and wait.** Reply with:
 
-1. **A menu of categories** (tick-list style), grouped so it's easy to answer. Offer the ones that have worked before plus fresh ideas, e.g.:
+1. **A menu of topics** (tick-list style), grouped so it's easy to answer. Offer the ones that have worked before plus fresh ideas, e.g.:
    - **Music**: song intro rounds (they play the audio), guess the year, name the album (cover picture), one-hit wonders, Britpop / 90s / 00s decades
    - **Pictures**: who is this? (celebrities / celebrities as kids), name the landmark, what animal is this, name the painting, whose flag is this
    - **Film & TV**: movie quotes, British sitcoms, TV theme knowledge, James Bond, kids' films
-   - **Knowledge**: general knowledge, geography, history, science & nature, sport, food & drink, true or false
+   - **Knowledge**: general knowledge, geography, history, science & nature, sport, food & drink
    - **Numbers**: a slider-only round — "how many / how tall / what year" guessing
-2. **A suggested structure** they can say yes to: e.g. 4 rounds × 10 questions, a mix of multiple choice / typed / slider inside each round, 1–2 wagers on different question types, 2 sudden deaths. Ask which categories they fancy, roughly how many rounds/questions, and whether they want song rounds at all.
-3. Then **wait for their answer**, build to it, and follow every rule in this file (history check first, UK slant, spread `correctIndex`, varied wagers, verify, append history).
+2. **A menu of formats** — a compact list drawn from "The format menu" above (fill in the blank, anagrams, missing vowels, odd one out, who said it, which came first, real or fake, price-tag sliders, percentage sliders, locator maps, logos…). Topics say what the questions are *about*; formats say how they're *asked* — any topic can wear any format, and a "greatest hits" quiz mixes several of each.
+3. **A suggested structure** they can say yes to: e.g. 4 rounds × 10 questions, a mix of multiple choice / typed / slider inside each round, 1–2 wagers on different question types, 2 sudden deaths. Ask which topics and formats they fancy, roughly how many rounds/questions, and whether they want song rounds at all.
+4. Then **wait for their answer**, build to it, and follow every rule in this file (history check first, UK slant, standard points, spread `correctIndex`, spread slider answers, varied wagers, verify, append history).
 
 Category ideas that repeat well **as formats** (picture rounds, guess the year) are fine to reuse across quiz nights — it's the individual questions that must never repeat, which is what the history store enforces.
 
