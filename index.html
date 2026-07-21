@@ -479,6 +479,42 @@
   /* the answer a player picked, shown on the reveal in that button's colour */
   .qb-pick-chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:3px 12px;color:#fff;font-size:15px;font-weight:700;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
   .qb-pick-chip .shape{font-size:11px;}
+  /* ---------- powerups ---------- */
+  .qb-pu-slots{display:flex;gap:10px;margin:0 0 12px;}
+  .qb-pu-slot{width:52px;height:52px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;font-size:26px;border:2px dashed rgba(255,255,255,0.25);background:rgba(255,255,255,0.05);color:rgba(255,255,255,0.4);}
+  .qb-pu-slot.filled{border-style:solid;border-color:var(--gold);background:rgba(244,185,66,0.12);cursor:pointer;}
+  .qb-pu-menu{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;}
+  .qb-pu-row{display:flex;align-items:center;gap:12px;text-align:left;border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:10px 12px;background:rgba(255,255,255,0.04);color:inherit;cursor:pointer;font:inherit;}
+  .qb-pu-row:disabled{opacity:0.45;cursor:default;}
+  .qb-pu-row .ic{font-size:26px;flex-shrink:0;}
+  .qb-pu-row .tx{flex:1;line-height:1.35;}
+  .qb-pu-row .add{font-size:22px;font-weight:800;color:var(--gold);flex-shrink:0;}
+  /* in-game tray on the phone */
+  .qb-pu-tray{display:flex;gap:10px;justify-content:center;align-items:center;margin:8px 0 4px;}
+  .qb-pu-btn{width:54px;height:54px;border-radius:14px;border:2px solid var(--gold);background:rgba(244,185,66,0.14);font-size:26px;cursor:pointer;position:relative;transition:transform 0.15s;}
+  .qb-pu-btn:active{transform:scale(0.92);}
+  .qb-pu-btn:disabled{border-color:rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);opacity:0.4;cursor:default;filter:grayscale(1);}
+  .qb-pu-btn.played{animation:qb-pu-pulse 0.8s ease;box-shadow:0 0 22px rgba(244,185,66,0.8);}
+  @keyframes qb-pu-pulse{0%{transform:scale(1);}40%{transform:scale(1.35);}100%{transform:scale(1);}}
+  .qb-pu-note{font-size:13px;color:var(--muted);text-align:center;}
+  /* target picker sheet */
+  .qb-pu-target{display:flex;flex-direction:column;gap:8px;margin:8px 0;}
+  .qb-pu-target button{border:1px solid rgba(255,255,255,0.2);border-radius:12px;padding:12px;background:rgba(255,255,255,0.06);color:inherit;font:inherit;font-weight:700;cursor:pointer;}
+  /* 50/50: the two snipped answers wither away (phone) */
+  .qb-answer-sq.cut{opacity:0.12;filter:grayscale(1);transform:scale(0.94);pointer-events:none;transition:opacity 0.6s,transform 0.6s;}
+  /* held powerups shown beside names on projector boards */
+  .qb-pu-held{font-size:0.75em;letter-spacing:2px;margin-left:6px;}
+  /* oil slick: full-phone overlay, blocks every tap while it drips */
+  .qb-oil-overlay{position:fixed;inset:0;z-index:2000;overflow:hidden;background:rgba(0,0,0,0.25);touch-action:none;}
+  .qb-oil-drip{position:absolute;top:-18vh;width:26px;border-radius:0 0 14px 14px;background:linear-gradient(#05060a,#101318);opacity:0.94;animation:qb-oil-fall linear forwards;}
+  @keyframes qb-oil-fall{to{transform:translateY(130vh);}}
+  .qb-oil-msg{position:absolute;left:0;right:0;top:38%;text-align:center;font-family:'Archivo Black',sans-serif;font-size:26px;color:#fff;text-shadow:0 2px 12px #000;animation:qb-oil-wobble 0.5s ease infinite alternate;}
+  @keyframes qb-oil-wobble{from{transform:rotate(-2deg);}to{transform:rotate(2deg);}}
+  /* bomb aftermath line on the reveal. Deliberately NOT animated: the 900ms
+     display poll rebuilds this DOM, and a restarting entrance animation sat
+     permanently mid-fade — the explosion moment comes from showBanner instead */
+  .qb-bomb-line{font-family:'Archivo Black',sans-serif;font-size:24px;color:#ff6b6b;margin:10px auto;text-shadow:0 2px 10px rgba(0,0,0,0.6);}
+  .qb-bomb-line .maths{display:block;font-family:'Nunito',sans-serif;font-size:16px;color:#dfe3ec;margin-top:4px;}
   .qb-question-text{font-family:'Archivo Black',sans-serif;font-size:34px;margin-bottom:18px;}
   /* white backing so transparent PNGs (logos) stay visible on the dark stage */
   .qb-qimage{max-width:min(440px,80vw);max-height:300px;border-radius:14px;margin:0 auto 18px;display:block;background:#fff;}
@@ -579,6 +615,7 @@
   let joinDraftName = '';
   let joinDraftAvatar = null;
   let joinDraftSound = null;   // index into BUZZ_SOUNDS; player picks it on the join screen
+  let joinDraftPu = [];        // the 3 powerups picked at sign-up (duplicates allowed)
   let codeDraft = '';
 
   // admin round-builder form state (local, not shared, only the host edits this)
@@ -653,6 +690,10 @@
       // Nearest guess wins; sliderBand (optional) lets everyone within ±band
       // score too; landing on the closest reachable notch is a bullseye.
       sliderMin:0, sliderMax:0, sliderStep:1, sliderAnswer:0, sliderBand:0, sliderUnit:'',
+      // powerups: puEpoch keys this question's plays (minted at load so plays
+      // work during the 3-2-1); puEvents is what happened, resolved at scoring
+      // by the host for the reveal screens (bombs, oils, autos, doubles)
+      puEpoch:'', puEvents:[],
       // sudden death: fastest finger on the buzzer, question shown on the projector.
       // sdEligible restricts the buzzers to the tied leaders when a tie exists
       suddenDeath:false, sdEligible:[],
@@ -777,7 +818,7 @@
   const ANSWER_SECONDS = 15;    // to answer after buzzing on a song round
   const QUESTION_SECONDS = 15;  // to pick an answer on a multiple-choice question
   const TEXT_SECONDS = 25;      // to type an answer on a text round
-  const MAX_BET = 100;          // wager cap; bets may push a score negative
+  const MAX_BET = 10;           // wager cap; bets may push a score negative
   const DEFAULT_POINTS = 3;     // a normal question
   const SLIDER_POINTS = 6;      // sliders are hardest to get exactly right
   const ANSWER_COLORS = ['#e63946', '#2e86de', '#f4b942', '#4cc38a'];
@@ -860,6 +901,61 @@
   // still win the question's normal points, they just can't touch the pot.
   function stakedIn(s, id){
     return ((s.bets || {})[id] || 0) > 0;
+  }
+
+  // ---------- powerups ----------
+  // Players carry up to 3 powerups in a bank, chosen at sign-up, and earn a new
+  // pick every 50 points climbed. Question rounds only (MC / typed / slider).
+  // One play per player per question; a play is an own-key write under the
+  // question's puEpoch, so it's race-free like buzzes/answers/bets, and the
+  // host tab resolves everything at scoring time (single writer).
+  const POWERUPS = {
+    auto:   { icon:'✅', name:'Auto-Correct', target:'self',
+              blurb:'Score this question’s base points even if you get it wrong. Speed bonuses still have to be earned.' },
+    bomb:   { icon:'💣', name:'Bomb', target:'player',
+              blurb:'Pick a victim: they lose 10 points at the reveal — but only if YOU answer this question correctly. Get it wrong and the bomb fizzles, powerup wasted.' },
+    fifty:  { icon:'✂️', name:'50/50', target:'self',
+              blurb:'Snips two wrong answers off a multiple-choice question, leaving you a coin flip. Multiple choice only.' },
+    double: { icon:'🎲', name:'Double or Nothing', target:'self',
+              blurb:'Whatever you win on this question is doubled. Score nothing and the powerup burned for nothing.' },
+    oil:    { icon:'🛢️', name:'Oil Slick', target:'player',
+              blurb:'Rains oil down a rival’s phone for 5 seconds — screen blocked, panic guaranteed. Time it cruelly.' }
+  };
+  const PU_MAX_SLOTS = 3;
+  const PU_EVERY = 50;        // a fresh powerup pick every 50 points climbed
+  const BOMB_DAMAGE = 10;
+  function puList(p){ return (p && Array.isArray(p.pu)) ? p.pu.filter(t => POWERUPS[t]) : []; }
+  // banked-but-unspent picks: highest 50s rung this player has ever reached,
+  // minus the picks they've already taken. Claims wait until a slot is free.
+  function puPending(p){
+    return Math.max(0, (p && p.puHi || 0) - (p && p.puClaimed || 0));
+  }
+  // rung-climbing is monotonic — a bomb knocking you back under 50 can't earn
+  // you a second pick for re-crossing it. Host tab only (it owns qb-players).
+  function refreshPuHi(players){
+    players.forEach(p => {
+      const rung = Math.max(0, Math.floor((p.score || 0) / PU_EVERY));
+      if(rung > (p.puHi || 0)) p.puHi = rung;
+    });
+  }
+  function powerUrl(epoch, playerId){
+    return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
+      + '/qb-power-' + encodeURIComponent(epoch)
+      + (playerId ? '/' + encodeURIComponent(playerId) : '') + '.json';
+  }
+  async function fetchPowers(epoch){
+    if(!bucket || !epoch) return {};
+    try{
+      const res = await fetch(powerUrl(epoch), { cache:'no-store' });
+      if(!res.ok) return {};
+      return (await res.json()) || {};
+    }catch(e){ return {}; }
+  }
+  // a threshold claim: the phone writes only its own key here; the host folds
+  // it into qb-players on its next poll and deletes the key (single writer)
+  function puPickUrl(playerId){
+    return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
+      + '/qb-pupick' + (playerId ? '/' + encodeURIComponent(playerId) : '') + '.json';
   }
 
   // ---------- slider rounds ----------
@@ -993,6 +1089,11 @@
     join(){ tone(880, 0, 0.09, 'sine', 0.2); tone(1175, 0.08, 0.14, 'sine', 0.2); },
     layer(){ tone(587, 0, 0.1, 'triangle', 0.22); tone(659, 0.1, 0.16, 'triangle', 0.22); },
     timesup(){ for(let i = 0; i < 3; i++){ tone(520, i * 0.3, 0.24, 'square', 0.4, 480); tone(260, i * 0.3, 0.24, 'sawtooth', 0.35, 240); } },
+    // powerups: an arming chime, a gloopy splat for the oil slick victim, and
+    // a proper detonation for the projector when a bomb goes off at the reveal
+    arm(){ tone(660, 0, 0.1, 'triangle', 0.3); tone(990, 0.1, 0.18, 'triangle', 0.3, 1320); },
+    splat(){ [300, 220, 160, 120].forEach((f, i) => tone(f, i * 0.09, 0.13, 'sawtooth', 0.4, f * 0.55)); },
+    boom(){ tone(120, 0, 0.8, 'sawtooth', 0.5, 35); tone(60, 0, 0.9, 'square', 0.45, 28); tone(2400, 0, 0.12, 'square', 0.18, 300); },
     // the projector countdown's once-a-second ticks: soft blip, then urgent,
     // then critical — played by the display (the room's speaker), never phones,
     // so every ear hears one clock and per-phone drift doesn't matter
@@ -1134,12 +1235,17 @@
     return tied.length >= 2 ? tied : [];
   }
 
+  // the powerups a player is holding, shown beside their name on every board
+  function puHeldHTML(p){
+    const held = puList(p);
+    return held.length ? `<span class="qb-pu-held">${held.map(t => POWERUPS[t].icon).join('')}</span>` : '';
+  }
   function scoreboardHTML(players, big){
     const sorted = sortedPlayers(players);
     if(sorted.length === 0) return `<p class="qb-small">No players have joined yet.</p>`;
     return `<div class="${big ? 'qb-display-scoreboard' : ''}">` + sorted.map((p,i)=>`
       <div class="qb-score-row">
-        <span class="name"><span class="qb-rank">${i+1}.</span> ${p.avatar} ${esc(p.name)}</span>
+        <span class="name"><span class="qb-rank">${i+1}.</span> ${p.avatar} ${esc(p.name)}${puHeldHTML(p)}</span>
         <span class="pts">${p.score}</span>
       </div>
     `).join('') + `</div>`;
@@ -1244,6 +1350,23 @@
         <div class="qb-buzzer-grid">
           ${BUZZ_SOUNDS.map((b, i) => `<button class="qb-buzzer-pick ${i===joinDraftSound?'selected':''}" data-action="pick-buzzer" data-sound="${i}">${esc(b.label)}</button>`).join('')}
         </div>
+        <label class="qb-label">Pick your 3 powerups &mdash; you can take doubles</label>
+        <div class="qb-pu-slots">
+          ${[0,1,2].map(i => joinDraftPu[i]
+            ? `<button class="qb-pu-slot filled" data-action="join-remove-pu" data-idx="${i}" title="Tap to put it back">${POWERUPS[joinDraftPu[i]].icon}</button>`
+            : `<span class="qb-pu-slot empty">${i + 1}</span>`).join('')}
+          <span class="qb-small" style="align-self:center;">${joinDraftPu.length < PU_MAX_SLOTS ? `pick ${PU_MAX_SLOTS - joinDraftPu.length} more` : 'ready! tap a slot to swap'}</span>
+        </div>
+        <div class="qb-pu-menu">
+          ${Object.entries(POWERUPS).map(([t, d]) => `
+            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS ? 'disabled' : ''}>
+              <span class="ic">${d.icon}</span>
+              <span class="tx"><strong>${d.name}</strong><br><span class="qb-small">${d.blurb}</span></span>
+              <span class="add">+</span>
+            </button>
+          `).join('')}
+        </div>
+        <p class="qb-small" style="margin:4px 0 12px;">Earn another pick every ${PU_EVERY} points you climb &mdash; if you've got a free slot.</p>
         <button class="qb-btn qb-btn-primary" data-action="submit-join">Join the quiz</button>
         ${claimHTML}
       </div>
@@ -1261,11 +1384,15 @@
     const name = (nameEl ? nameEl.value : joinDraftName).trim();
     if(!name){ alert('Enter a name first.'); return; }
     if(!joinDraftAvatar){ alert('Pick a picture first.'); return; }
+    if(joinDraftPu.length < PU_MAX_SLOTS){ alert(`Pick your ${PU_MAX_SLOTS} powerups first — doubles are allowed.`); return; }
     // default to a random buzzer if they never tapped one, so nobody is silent
     const sound = Number.isInteger(joinDraftSound) ? joinDraftSound : Math.floor(Math.random() * BUZZ_SOUNDS.length);
     const id = makeId('p');
     const players = await getPlayers();
-    players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound });
+    // pu = the live bank; puChosen = the sign-up picks, kept so a game reset
+    // can refill everyone's slots to how they started the night
+    players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound,
+      pu: joinDraftPu.slice(0, PU_MAX_SLOTS), puChosen: joinDraftPu.slice(0, PU_MAX_SLOTS), puHi: 0, puClaimed: 0 });
     await savePlayers(players);
     saveStoredIdentity(id, name, joinDraftAvatar);
     myPlayerId = id;
@@ -1313,6 +1440,35 @@
   // everything that decides the *shape* of the screen; while that fingerprint
   // holds we patch the handful of live numbers in place and leave the DOM alone.
   let prevPlayerShape = null;
+  let puArming = null;   // powerup slot mid-aim: {type} while the target list is open
+  let oilSeen = {};      // oil slick plays this phone has already suffered, by epoch+player
+  // full-phone oil overlay: appended to <body> (like the banners) so the 800ms
+  // repaint can't wash it off early; it swallows every tap while it drips
+  function showOilSlick(fromName){
+    if(document.querySelector('.qb-oil-overlay')) return;
+    const o = document.createElement('div');
+    o.className = 'qb-oil-overlay';
+    let drips = '';
+    for(let i = 0; i < 16; i++){
+      drips += `<span class="qb-oil-drip" style="left:${Math.round(Math.random() * 96)}vw;height:${Math.round(30 + Math.random() * 55)}vh;animation-duration:${(0.8 + Math.random() * 1.7).toFixed(2)}s;animation-delay:${(Math.random() * 2.6).toFixed(2)}s;"></span>`;
+    }
+    o.innerHTML = drips + `<div class="qb-oil-msg">🛢️ ${esc(fromName || 'Someone')} OILED YOU!</div>`;
+    document.body.appendChild(o);
+    playSound('splat');
+    setTimeout(() => o.remove(), 5000);
+  }
+  // 50/50 keeps the correct answer plus ONE wrong one. The kept wrong answer is
+  // hashed from the epoch + player id so every repaint (and a phone refresh)
+  // cuts the same two — no re-rolling the snip by reloading.
+  function fiftyCuts(state, playerId){
+    const wrongs = (state.qAnswers || []).map((_, i) => i).filter(i => i !== state.qCorrect);
+    if(wrongs.length < 2) return [];
+    let h = 0;
+    const seed = (state.puEpoch || '') + playerId;
+    for(const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const keep = wrongs[h % wrongs.length];
+    return wrongs.filter(i => i !== keep);
+  }
   async function renderPlayer(){
     if(!myPlayerId){
       const resumed = await resumeStoredPlayer();
@@ -1373,6 +1529,24 @@
       myAnswer = answers[myPlayerId] || null;
       answeredCount = Object.values(answers).filter(a => a && a.id).length;
     }
+    // powerups are armed from the 3-2-1 countdown right through the live
+    // question; the plays live under puEpoch so both phases share one key
+    const puLive = state.qMode && state.status === 'live' && !!state.puEpoch && !state.reviewing
+      && (state.countdown || answering);
+    let myPlay = null;
+    if(puLive){
+      const powers = await fetchPowers(state.puEpoch);
+      myPlay = powers[myPlayerId] || null;
+      // suffer any oil slick aimed at this phone, once per play
+      Object.values(powers).forEach(pw => {
+        if(pw && pw.type === 'oil' && pw.target === myPlayerId && pw.id !== myPlayerId){
+          const key = state.puEpoch + ':' + pw.id;
+          if(!oilSeen[key]){ oilSeen[key] = 1; showOilSlick(pw.name); }
+        }
+      });
+    } else {
+      puArming = null;   // a question ending closes any half-aimed powerup
+    }
     if(seq !== playerSeq) return;
     const pot = kittyTotal(state);
 
@@ -1404,7 +1578,9 @@
         // question rounds have no single winner, so react to my own result
         if(state.qMode){
           const mine = (state.qResults || []).find(r => r.id === myPlayerId);
-          if(mine && mine.correct) playSound('correct');
+          const bombedMe = (state.puEvents || []).some(e => e.type === 'bomb' && e.fired && e.target === myPlayerId);
+          if(bombedMe) playSound('boom');   // getting bombed is personal
+          else if(mine && (mine.correct || (mine.auto && mine.won))) playSound('correct');
           else if(mine && mine.answered) playSound('wrong');
         }
       }
@@ -1425,7 +1601,9 @@
         const why = mine.kitty ? ` — and you scooped the ${mine.kitty}-point kitty!${state.betMatched ? ' Lone bet, house-doubled! 🎰' : ''} 💰`
           : mine.bullseye ? ' — bullseye! 🎯'
           : mine.fastest ? ' — fastest answer, bonus included 🥇' : '';
-        statusSub = `✅ You got it! +${mine.won} points${why}`;
+        statusSub = `✅ You got it! +${mine.won} points${mine.double ? ' 🎲 DOUBLED!' : ''}${why}`;
+      } else if(mine && mine.auto && mine.won){
+        statusSub = `✅ Auto-Correct fired! +${mine.won} base points banked`;
       } else if(mine && mine.answered){
         const picked = mine.text ? `you put “${esc(mine.text)}”`
           : Number.isInteger(mine.choice) ? `you picked ${ANSWER_SHAPES[mine.choice] || ''} ${esc((state.qAnswers || [])[mine.choice] || '')}` : '';
@@ -1433,6 +1611,19 @@
       } else {
         statusSub = "You didn't answer in time";
       }
+      // my powerup's fate, and anything that hit me, spelled out with the maths
+      (state.puEvents || []).forEach(e => {
+        if(e.type === 'bomb' && e.from === myPlayerId){
+          statusSub += e.fired ? ` · 💣 Your bomb hit ${esc(e.targetName)}: −${e.damage}!`
+            : ' · 💣💨 Your bomb fizzled — you have to get the question right!';
+        }
+        if(e.type === 'bomb' && e.fired && e.target === myPlayerId){
+          statusSub += ` · 💣 ${esc(e.fromName)} bombed you: −${e.damage}${e.targetWon ? ` (+${e.targetWon} won − ${e.damage} = ${e.targetNet >= 0 ? '+' : ''}${e.targetNet} overall)` : ''}`;
+        }
+        if(e.type === 'oil' && e.from === myPlayerId) statusSub += ` · 🛢️ You oiled ${esc(e.targetName)}!`;
+        if(e.type === 'auto' && e.from === myPlayerId && !e.fired) statusSub += ' · ✅ Auto-Correct wasted — you were right anyway!';
+        if(e.type === 'double' && e.from === myPlayerId && !e.fired) statusSub += ' · 🎲 Double or Nothing came up NOTHING — powerup burned!';
+      });
     } else if(state.status === 'reveal'){
       statusLine = `It was ${esc(state.songTitle || '')}${state.artist ? ` by ${esc(state.artist)}` : ''}`;
       const iBet = (state.bets || {})[myPlayerId] || 0;
@@ -1567,6 +1758,8 @@
         </div>
       `;
     } else if(answering){
+      // a played 50/50 withers two wrong answers away on this phone only
+      const cuts = (myPlay && myPlay.type === 'fifty') ? fiftyCuts(state, myPlayerId) : [];
       centreHTML = `
         <div class="qb-buzzer-wrap" style="gap:12px;">
           <div class="qb-status-line" style="font-size:17px;">${esc(state.question || '')}</div>
@@ -1575,13 +1768,15 @@
           ${kittyNoteHTML}
           ${myAnswer ? `
             <div class="qb-status-sub">Answer locked in &mdash; watch the screen! <span id="qb-p-answered">${answeredCount} answered so far.</span></div>
+          ` : cuts.length ? `
+            <div class="qb-status-sub">✂️ 50/50 played &mdash; two wrong answers are gone. Coin flip time!</div>
           ` : `
             <div class="qb-status-sub">Tap the colour that matches the right answer on the screen &mdash; fast!</div>
           `}
           <div class="qb-answer-grid phone" style="width:100%;">
             ${(state.qAnswers || []).map((a, i) => `
-              <button class="qb-answer-sq ${myAnswer && myAnswer.choice === i ? 'chosen' : ''}" style="background:${ANSWER_COLORS[i]};"
-                data-action="answer-choice" data-choice="${i}" ${myAnswer ? 'disabled' : ''}>
+              <button class="qb-answer-sq ${myAnswer && myAnswer.choice === i ? 'chosen' : ''} ${cuts.includes(i) ? 'cut' : ''}" style="background:${ANSWER_COLORS[i]};"
+                data-action="answer-choice" data-choice="${i}" ${myAnswer || cuts.includes(i) ? 'disabled' : ''}>
                 <span class="shape">${ANSWER_SHAPES[i]}</span> ${esc(a)}
               </button>
             `).join('')}
@@ -1600,6 +1795,53 @@
       `;
     }
 
+    // ----- the powerup tray: always on show so players see their bank -----
+    const myPu = puList(me);
+    const rivals = players.filter(p => p.id !== myPlayerId);
+    let trayHTML = '';
+    if(me){
+      if(puArming && puLive && !myPlay){
+        // aiming: pick a victim (bomb / oil slick)
+        trayHTML = `
+          <div class="qb-pu-target">
+            <div class="qb-pu-note">${POWERUPS[puArming.type].icon} <strong>${POWERUPS[puArming.type].name}</strong> &mdash; on who?</div>
+            ${rivals.map(p => `<button data-action="pu-target" data-type="${puArming.type}" data-target="${p.id}">${p.avatar} ${esc(p.name)} &middot; ${p.score} pts</button>`).join('')}
+            <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="pu-cancel">Never mind</button>
+          </div>
+        `;
+      } else {
+        const slotBtn = (t, i) => {
+          const d = POWERUPS[t];
+          const needsRival = d.target === 'player' && !rivals.length;
+          const offType = t === 'fifty' && (state.textMode || state.sliderMode || !(state.qAnswers || []).length);
+          const usable = puLive && !myPlay && !needsRival && !offType;
+          const why = !puLive ? '' : myPlay ? '' : offType ? '50/50 only works on multiple choice' : needsRival ? 'needs another player' : '';
+          return `<button class="qb-pu-btn ${myPlay && myPlay.type === t && i === myPu.indexOf(t) ? 'played' : ''}" data-action="play-pu" data-type="${t}"
+            ${usable ? '' : 'disabled'} title="${esc(d.name + (why ? ' — ' + why : ''))}">${d.icon}</button>`;
+        };
+        const emptySlots = Math.max(0, PU_MAX_SLOTS - myPu.length);
+        trayHTML = `
+          <div class="qb-pu-tray">
+            ${myPu.map((t, i) => slotBtn(t, i)).join('')}
+            ${Array.from({length: emptySlots}, (_, i) => `<span class="qb-pu-slot empty">${myPu.length + i + 1}</span>`).join('')}
+          </div>
+          <div class="qb-pu-note">${
+            myPlay ? `${POWERUPS[myPlay.type] ? POWERUPS[myPlay.type].icon + ' ' + POWERUPS[myPlay.type].name : 'Powerup'} played${myPlay.targetName ? ` on ${esc(myPlay.targetName)}` : ''} &mdash; one per question!`
+            : puLive ? 'Powerups are live — tap one to play it (one per question)'
+            : myPu.length ? 'Your powerups — they unlock on question rounds' : 'No powerups banked'}</div>
+        `;
+        // a claim is banked until a slot frees up; then the picker appears
+        if(puPending(me) > 0 && myPu.length < PU_MAX_SLOTS){
+          trayHTML += `
+            <div class="qb-pu-target" style="border:1px solid var(--gold);border-radius:14px;padding:12px;">
+              <div class="qb-pu-note" style="color:var(--gold);">🎁 <strong>You've earned a new powerup!</strong> Pick one:</div>
+              ${Object.entries(POWERUPS).map(([t, d]) => `<button data-action="claim-pu" data-type="${t}">${d.icon} ${d.name}</button>`).join('')}
+            </div>
+          `;
+        }
+      }
+    }
+
     // Everything that decides the *structure* of what's on screen. While this
     // holds steady, a rebuild would gain nothing and cost us the clue image (its
     // load restarts from scratch) and any half-dragged slider, so we patch instead.
@@ -1610,6 +1852,10 @@
       state.sliderMin, state.sliderMax, state.sliderStep, state.sliderUnit,
       myBet ? [myBet.amount, !!myBet.pass] : null,
       myAnswer ? [myAnswer.choice, myAnswer.text, myAnswer.value] : null,
+      // powerups: the tray, an armed target list, a played state or a pending
+      // claim all change the phone's structure, so they must sit in the shape
+      myPu, myPlay ? [myPlay.type, myPlay.target] : null, puArming ? puArming.type : null,
+      puLive, me ? puPending(me) : 0,
       myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length
     ]);
     if(prevPlayerShape === shape && root.querySelector('.qb-card')){
@@ -1636,6 +1882,7 @@
           </span>
         </div>
         ${centreHTML}
+        ${trayHTML}
         <div class="qb-scoreboard" id="qb-p-scoreboard">
           ${scoreboardHTML(players, false)}
         </div>
@@ -1699,6 +1946,54 @@
         sound: soundIndexFor(me || { id: myPlayerId }),
         ts: { '.sv':'timestamp' }
       }) });
+    }catch(e){ console.error(e); }
+    renderPlayer();
+  }
+
+  // ---------- playing a powerup ----------
+  // Own-key write under the question's puEpoch — race-free like everything
+  // else. One play per player per question: the phone locks its tray once its
+  // own key exists, and the host resolves whatever is there at scoring time.
+  async function playPowerup(type, targetId){
+    if(!myPlayerId || !POWERUPS[type]) return;
+    const state = await getGameState();
+    const answering = state.qMode && state.status === 'live' && !!state.answerEpoch;
+    if(!(state.qMode && state.status === 'live' && state.puEpoch && !state.reviewing && (state.countdown || answering))) return;
+    if(type === 'fifty' && (state.textMode || state.sliderMode || !(state.qAnswers || []).length)) return;
+    const players = await getPlayers();
+    const me = players.find(p => p.id === myPlayerId);
+    if(!puList(me).includes(type)) return;              // don't own one
+    const existing = await fetchPowers(state.puEpoch);
+    if(existing[myPlayerId]){ puArming = null; renderPlayer(); return; }  // already played this question
+    const target = targetId ? players.find(p => p.id === targetId) : null;
+    if(POWERUPS[type].target === 'player' && !target) return;
+    playSound('arm');
+    try{
+      await fetch(powerUrl(state.puEpoch, myPlayerId), { method:'PUT', body: JSON.stringify({
+        id: myPlayerId,
+        name: me ? me.name : myPlayerName,
+        avatar: me ? me.avatar : '',
+        type,
+        target: target ? target.id : null,
+        targetName: target ? target.name : '',
+        targetAvatar: target ? target.avatar : '',
+        ts: { '.sv':'timestamp' }
+      }) });
+    }catch(e){ console.error(e); }
+    puArming = null;
+    renderPlayer();
+  }
+  // claiming an earned pick: the phone writes only its own key under qb-pupick;
+  // the host tab (sole writer of qb-players) folds it into the bank and deletes
+  // the key on its next poll, so the new icon appears within a second or two
+  async function claimPowerup(type){
+    if(!myPlayerId || !POWERUPS[type]) return;
+    const players = await getPlayers();
+    const me = players.find(p => p.id === myPlayerId);
+    if(!me || puPending(me) <= 0 || puList(me).length >= PU_MAX_SLOTS) return;
+    playSound('join');
+    try{
+      await fetch(puPickUrl(myPlayerId), { method:'PUT', body: JSON.stringify({ id: myPlayerId, type, ts: { '.sv':'timestamp' } }) });
     }catch(e){ console.error(e); }
     renderPlayer();
   }
@@ -1837,7 +2132,7 @@
     document.querySelectorAll('.qb-banner-overlay').forEach(el => el.remove());
     const overlay = document.createElement('div');
     overlay.className = 'qb-banner-overlay';
-    const emojis = kind === 'correct' ? ['🎉','⭐','✨','🎊'] : ['💥','❌','💢','😬'];
+    const emojis = kind === 'correct' ? ['🎉','⭐','✨','🎊'] : kind === 'bomb' ? ['💣','💥','🔥','💢'] : ['💥','❌','💢','😬'];
     let particles = '';
     for(let i = 0; i < 16; i++){
       const ang = (Math.PI * 2 * i) / 16;
@@ -1851,6 +2146,23 @@
   // small gold instruction strip used on the projector to explain what's happening
   function tipHTML(text){
     return `<div class="qb-tip">💡 ${text}</div>`;
+  }
+  // powerup drama for the reveal screen: bombs (with the maths spelled out so
+  // there are no arguments about the damage) and oil slicks. Autos, doubles and
+  // 50/50s show as badges on the result rows instead.
+  function puEventLinesHTML(s){
+    const evs = (s.puEvents || []).filter(e => e.type === 'bomb' || e.type === 'oil');
+    return evs.map(e => {
+      if(e.type === 'bomb'){
+        return e.fired
+          ? `<div class="qb-bomb-line">💣💥 ${esc(e.fromName)} BOMBED ${esc(e.targetName)}! &minus;${e.damage} points
+               <span class="maths">${esc(e.targetName)} ${e.targetWon
+                 ? `won +${e.targetWon} on the question &minus; ${e.damage} bomb = ${e.targetNet >= 0 ? '+' : ''}${e.targetNet} overall`
+                 : `won nothing on the question, so takes the full &minus;${e.damage}`}</span></div>`
+          : `<div class="qb-bomb-line" style="color:var(--muted);">💣💨 ${esc(e.fromName)}'s bomb on ${esc(e.targetName)} fizzled &mdash; you have to get it RIGHT to set it off!</div>`;
+      }
+      return `<div class="qb-bomb-line" style="color:#8fb7d8;">🛢️ ${esc(e.fromName)} oiled ${esc(e.targetName)}'s screen!</div>`;
+    }).join('');
   }
   // what happened to the kitty, for the reveal screen. An unwon kitty isn't
   // burned any more — it rolls into the next wager, which is worth shouting about.
@@ -1868,7 +2180,7 @@
     return `<div class="qb-standings">` + sorted.map((p, i) => `
       <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''}">
         <span class="rank">${tiedIds.includes(p.id) ? '🤝' : medals[i] || (i + 1) + '.'}</span>
-        <span class="who">${p.avatar} ${esc(p.name)} ${tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED FOR 1st</span>' : ''}</span>
+        <span class="who">${p.avatar} ${esc(p.name)}${puHeldHTML(p)} ${tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED FOR 1st</span>' : ''}</span>
         <span class="pts">${p.score}</span>
       </div>
     `).join('') + `</div>`
@@ -2048,8 +2360,15 @@
       const prev = prevDisplaySnap;
       if(buzz && buzz.id !== prev.buzzedId) playBuzzFor(buzz);
       if(state.status === 'reveal' && prev.status !== 'reveal'){
-        playSound(state.winnerId ? 'correct' : 'reveal');
-        if(state.winnerId) showBanner('correct', `${state.winnerAvatar || ''} ${esc(state.winnerName || 'Someone')} got it correct!`);
+        // a detonated bomb steals the show; otherwise the usual reveal noises
+        const firedBomb = (state.puEvents || []).find(e => e.type === 'bomb' && e.fired);
+        if(firedBomb){
+          playSound('boom');
+          showBanner('bomb', `💣💥 ${esc(firedBomb.fromName)} BOMBED ${esc(firedBomb.targetName)}!<div style="font-size:26px;margin-top:10px;">&minus;${firedBomb.damage} points</div>`);
+        } else {
+          playSound(state.winnerId ? 'correct' : 'reveal');
+          if(state.winnerId) showBanner('correct', `${state.winnerAvatar || ''} ${esc(state.winnerName || 'Someone')} got it correct!`);
+        }
       }
       const lockedCount = (state.lockedOut || []).length;
       if(state.status === 'live' && prev.status === 'live' && lockedCount > prev.lockedCount){
@@ -2197,14 +2516,16 @@
         </div>
         `}
         ${kittyLineHTML(state)}
+        ${puEventLinesHTML(state)}
         <div class="qb-qresults">
           ${answered.map(r => `
-            <div class="qb-qresult-row ${r.correct ? 'right' : 'wrong'}">
-              <span>${r.correct ? (r.bullseye ? '🎯' : r.fastest ? '🥇' : '✅') : '❌'}</span>
+            <div class="qb-qresult-row ${r.correct || (r.auto && r.won) ? 'right' : 'wrong'}">
+              <span>${r.correct ? (r.bullseye ? '🎯' : r.fastest ? '🥇' : '✅') : (r.auto && r.won) ? '✅' : '❌'}</span>
               <span>${r.avatar || ''} ${esc(r.name || '')}</span>
               ${r.text ? `<span class="qb-small">${state.sliderMode ? esc(r.text) : `&ldquo;${esc(r.text)}&rdquo;`}</span>`
                 : Number.isInteger(r.choice) ? `<span class="qb-pick-chip" style="background:${ANSWER_COLORS[r.choice] || '#666'};"><span class="shape">${ANSWER_SHAPES[r.choice] || ''}</span>${esc((state.qAnswers || [])[r.choice] || '')}</span>` : ''}
-              ${r.correct ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.bullseye ? ' bullseye!' : r.fastest ? ' fastest!' : ''}</span>` : ''}
+              ${r.correct || r.won > 0 ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.bullseye ? ' bullseye!' : r.fastest ? ' fastest!' : ''}${r.double ? ' 🎲 DOUBLED!' : ''}${r.auto && !r.correct ? ' ✅ auto-correct!' : ''}</span>` : ''}
+              ${r.bombDamage ? `<span class="delta" style="color:#ff6b6b;">💣 &minus;${r.bombDamage}</span>` : ''}
               <span class="t">${state.sliderMode ? (Number.isFinite(r.dist) ? (r.dist === 0 ? 'spot on' : fmtNum(r.dist, groupNums(state.sliderMax)) + ' off') : '') : (r.ms ? (r.ms / 1000).toFixed(2) + 's' : '')}</span>
             </div>
           `).join('')}
@@ -2237,7 +2558,7 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💰 Watch for <strong>wager rounds</strong> &mdash; you'll get a clue, then you can bet points into a kitty. Winner takes the lot, and if nobody wins it the kitty <strong>rolls over and grows</strong>.</li>
+            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival or oil up their screen. One per question, and every <strong>50 points</strong> climbed earns a fresh pick!</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
             <li>🎚️ Others are <strong>slide-to-guess</strong> &mdash; drag to your number, closest guess wins, spot on gets a bonus.</li>
           </ol>
@@ -2484,6 +2805,7 @@
     const p = players.find(x => x.id === id);
     if(!p) return;
     p.score = (p.score || 0) + delta;
+    refreshPuHi(players);   // a nudge over a 50s rung still earns the pick
     await savePlayers(players);
     renderAdmin();
   }
@@ -2535,6 +2857,7 @@
     const players = await getPlayers();
     const p = players.find(x => x.id === editingScoreId);
     if(p) p.score = value;
+    refreshPuHi(players);
     await savePlayers(players);
     editingScoreId = null;
     renderAdmin();
@@ -2945,6 +3268,10 @@
       s.qMode = true;
       s.textMode = r.type === 'text';
       s.sliderMode = r.type === 'slider';
+      // powerup plays key off this, NOT answerEpoch: it exists from the moment
+      // the round loads, so powerups can be armed during the 3-2-1 countdown
+      // before answerEpoch is minted. Fresh per load, so "Play again" is clean.
+      s.puEpoch = makeId('u');
       s.question = r.question;
       s.qImage = r.imageUrl || null;
       s.qAnswers = r.type === 'question' ? (r.answers || []) : [];
@@ -3109,6 +3436,30 @@
     if(!p.bestReaction || r < p.bestReaction) p.bestReaction = r;
   }
 
+  // hand earned powerup picks over: phones only write their wish to qb-pupick;
+  // this (the host tab, sole owner of qb-players) banks it and clears the key.
+  // Invalid or stale picks are deleted without effect.
+  async function foldPuPicks(players){
+    if(!players.some(p => puPending(p) > 0)) return false;
+    let picks = {};
+    try{
+      const res = await fetch(puPickUrl(), { cache:'no-store' });
+      picks = res.ok ? ((await res.json()) || {}) : {};
+    }catch(e){ return false; }
+    let changed = false;
+    for(const [pid, pick] of Object.entries(picks)){
+      const p = players.find(x => x.id === pid);
+      if(p && pick && POWERUPS[pick.type] && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS){
+        p.pu = puList(p).concat(pick.type);
+        p.puClaimed = (p.puClaimed || 0) + 1;
+        changed = true;
+      }
+      try{ fetch(puPickUrl(pid), { method:'DELETE' }); }catch(e){}
+    }
+    if(changed) await savePlayers(players);
+    return changed;
+  }
+
   async function markCorrect(half){
     const s = await getGameState();
     const buzz = s.status === 'live' ? earliestBuzz(await fetchBuzzes(s.buzzEpoch), s.lockedOut) : null;
@@ -3128,6 +3479,7 @@
       p.score = (p.score || 0) + points + kitty;
       recordReaction(p, buzz, s);
     }
+    refreshPuHi(players);   // song-round winnings climb the powerup rungs too
     await savePlayers(players);
 
     s.status = 'reveal';
@@ -3191,6 +3543,75 @@
     }
   }
 
+  // ---------- powerup resolution ----------
+  // Runs inside scoring, host tab only, AFTER the normal points are settled so
+  // "what you won" already includes any fastest/bullseye bonus:
+  //   auto   — scored nothing? the base points are granted (never the bonus).
+  //            Scored anyway? wasted. Either way the slot is spent.
+  //   double — whatever you won on the question is added again (kitty excluded).
+  //            Won nothing = burned for nothing: that's the gamble.
+  //   bomb   — fires only if the bomber scored; the victim just loses 10, so a
+  //            victim who got the question right nets (their winnings − 10).
+  //   oil / fifty — no scoring effect, recorded for the reveal's storytelling.
+  // A play of a type you don't hold is ignored; every real play consumes its
+  // slot win or lose. puHi rungs refresh here too, after the dust settles.
+  async function applyPowerups(s, results, players){
+    s.puEvents = [];
+    if(s.puEpoch){
+      const plays = await fetchPowers(s.puEpoch);
+      Object.values(plays).forEach(pw => {
+        if(!pw || !pw.id || !POWERUPS[pw.type]) return;
+        const p = players.find(pl => pl.id === pw.id);
+        if(!p) return;
+        const held = puList(p);
+        const ix = held.indexOf(pw.type);
+        if(ix < 0) return;                 // playing a powerup you don't own does nothing
+        held.splice(ix, 1);                // consumed, win or lose
+        p.pu = held;
+        const r = results.find(x => x.id === pw.id);
+        const ev = { type: pw.type, from: pw.id, fromName: pw.name || '', fromAvatar: pw.avatar || '',
+                     target: pw.target || null, targetName: pw.targetName || '', targetAvatar: pw.targetAvatar || '' };
+        if(pw.type === 'auto'){
+          if(r && !(r.won > 0)){
+            r.won = s.qPoints || 0;
+            r.auto = true;
+            r.answered = true;             // the reveal lists them with the answerers
+            p.score = (p.score || 0) + r.won;
+            ev.fired = true; ev.points = r.won;
+          } else {
+            if(r) r.auto = true;
+            ev.fired = false;              // they scored on their own — powerup wasted
+          }
+        } else if(pw.type === 'double'){
+          if(r && r.won > 0){
+            p.score = (p.score || 0) + r.won;   // the same again = doubled
+            ev.fired = true; ev.points = r.won;
+            r.won *= 2;
+            r.double = true;
+          } else {
+            ev.fired = false;
+          }
+        } else if(pw.type === 'bomb'){
+          const tr = results.find(x => x.id === pw.target);
+          const tp = players.find(pl => pl.id === pw.target);
+          ev.fired = !!(r && r.correct && tp);
+          if(ev.fired){
+            tp.score = (tp.score || 0) - BOMB_DAMAGE;
+            ev.damage = BOMB_DAMAGE;
+            ev.targetWon = (tr && tr.won) || 0;          // spelled out at the reveal
+            ev.targetNet = ev.targetWon - BOMB_DAMAGE;   // so there are no arguments
+            if(tr){ tr.bombedBy = pw.name || 'Someone'; tr.bombDamage = BOMB_DAMAGE; }
+          }
+        } else {
+          ev.fired = true;   // oil / fifty: flavour only
+          if(pw.type === 'fifty' && r) r.fifty = true;
+        }
+        s.puEvents.push(ev);
+      });
+    }
+    refreshPuHi(players);   // rungs climbed this question earn their picks now
+  }
+
   // ---------- question round scoring ----------
   // runs once, on the host's tab only (single writer): collects the answers,
   // scores everyone, hands the fastest-correct bonus out, and flips to reveal
@@ -3226,6 +3647,7 @@
       if(p) p.score = (p.score || 0) + won;
     });
     settleKitty(s, rightOnes, players);
+    await applyPowerups(s, results, players);
     await savePlayers(players);
     s.qResults = results;
     s.status = 'reveal';
@@ -3277,6 +3699,7 @@
     // closest first, and the quicker thumb breaks a dead heat for the kitty
     const rightOnes = guesses.filter(r => r.correct).sort((a, b) => (a.dist - b.dist) || ((a.ms || 9e9) - (b.ms || 9e9)));
     settleKitty(s, rightOnes, players);
+    await applyPowerups(s, results, players);
     await savePlayers(players);
     s.qResults = results;
     s.status = 'reveal';
@@ -3367,6 +3790,7 @@
       if(p) p.score = (p.score || 0) + won;
     });
     settleKitty(s, rightOnes, players);
+    await applyPowerups(s, results, players);
     await savePlayers(players);
     s.qResults = results;
     s.reviewing = false;
@@ -3407,8 +3831,14 @@
   async function resetGame(){
     if(!confirm('Reset all scores and end the current round? Your round library stays intact.')) return false;
     const players = await getPlayers();
-    players.forEach(p => { p.score = 0; delete p.bestReaction; delete p.buzzes; });
+    players.forEach(p => {
+      p.score = 0; delete p.bestReaction; delete p.buzzes;
+      // powerups back to the sign-up picks, rungs back to zero
+      if(Array.isArray(p.puChosen)) p.pu = p.puChosen.slice(0, PU_MAX_SLOTS);
+      p.puHi = 0; p.puClaimed = 0;
+    });
     await savePlayers(players);
+    try{ fetch(puPickUrl(), { method:'DELETE' }); }catch(e){}   // no stale claim wishes
     const fresh = defaultState();
     fresh.quizTitle = (await getGameState()).quizTitle || null; // a reset keeps the quiz name
     await saveGameState(fresh);
@@ -3814,6 +4244,10 @@
     const liveAntes = betting ? await fetchAntes(state.anteEpoch) : {};
     const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     const liveAnswers = answering ? await fetchAnswers(state.answerEpoch) : {};
+    // host's private intel: powerups armed on the live question
+    const livePowers = (state.qMode && state.status === 'live' && state.puEpoch) ? await fetchPowers(state.puEpoch) : {};
+    // bank any earned powerup picks phones have asked for (single writer)
+    await foldPuPicks(players);
     if(seq !== adminSeq) return;
 
     // question countdown: the host's tab is the single writer, so it also does
@@ -3926,6 +4360,10 @@
             <div class="np-label">${esc(state.roundLabel || '')}${state.roundTotal ? ` &middot; Question ${state.roundNumber} of ${state.roundTotal}` : ''} &middot; ${typeTag} &middot; ${state.qPoints} pts, +${state.qBonus} fastest bonus</div>
             <div class="np-song">${esc(state.question || '')}</div>
             <div class="qb-small">Answer (only you can see this): <strong>${esc(correctShown)}</strong></div>
+            ${(() => {
+              const played = Object.values(livePowers).filter(pw => pw && pw.id && POWERUPS[pw.type]);
+              return played.length ? `<div class="qb-small" style="margin-top:4px;">Powerups armed: ${played.map(pw => `${POWERUPS[pw.type].icon} ${esc(pw.name || '')}${pw.targetName ? ` → ${esc(pw.targetName)}` : ''}`).join(' &middot; ')}</div>` : '';
+            })()}
           </div>
           ${phasePanel}
         </div>
@@ -4140,7 +4578,7 @@
               </div>
             ` : `
               <div class="qb-player-admin-row">
-                <span>${p.avatar} ${esc(p.name)}</span>
+                <span>${p.avatar} ${esc(p.name)}${puHeldHTML(p)}${puPending(p) > 0 ? ' <span class="qb-wager-tag" title="Earned a powerup pick — they choose it on their phone">🎁 pick due</span>' : ''}</span>
                 <span style="display:flex;align-items:center;gap:8px;">
                   <button class="qb-score-adj" data-action="edit-player" data-id="${p.id}" title="Edit name and picture">&#9998;</button>
                   <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
@@ -4239,6 +4677,30 @@
           joinDraftSound = parseInt(el.getAttribute('data-sound'), 10);
           root.querySelectorAll('[data-action="pick-buzzer"]').forEach(b => b.classList.toggle('selected', b === el));
           playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer (tap also unlocks audio)
+        } else if(action === 'join-add-pu'){
+          if(joinDraftPu.length < PU_MAX_SLOTS){
+            joinDraftPu.push(el.getAttribute('data-type'));
+            playSound('join');
+            renderJoin(true);   // cached players, so the repaint doesn't steal focus
+          }
+        } else if(action === 'join-remove-pu'){
+          joinDraftPu.splice(parseInt(el.getAttribute('data-idx'), 10), 1);
+          renderJoin(true);
+        } else if(action === 'play-pu'){
+          const t = el.getAttribute('data-type');
+          if(POWERUPS[t] && POWERUPS[t].target === 'player'){
+            puArming = { type: t };   // open the who-to-hit list
+            renderPlayer();
+          } else {
+            playPowerup(t, null);
+          }
+        } else if(action === 'pu-target'){
+          playPowerup(el.getAttribute('data-type'), el.getAttribute('data-target'));
+        } else if(action === 'pu-cancel'){
+          puArming = null;
+          renderPlayer();
+        } else if(action === 'claim-pu'){
+          claimPowerup(el.getAttribute('data-type'));
         } else if(action === 'submit-join'){
           submitJoin();
         } else if(action === 'resume-player'){
