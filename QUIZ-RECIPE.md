@@ -79,7 +79,7 @@ The players are in the **UK**. Write for them:
 
 ### Question types (these go inside a group's `questions` array)
 
-> **Standard points** (use these unless the user asks for something else): multiple choice = **3**, typed answers = **6** (typing is harder than tapping), sliders = 3. `bonus` — the fastest-finger bonus for the quickest correct answer (on a slider it's the bullseye bonus instead) — is **2 on every question type**.
+> **Standard points** (use these unless the user asks for something else): multiple choice = **3**, typed answers = **6** (typing is harder than tapping), sliders = **6** (landing on a precise number is harder than picking from four options). `bonus` — the fastest-finger bonus for the quickest correct answer (on a slider it's the bullseye bonus instead) — is **2 on every question type**.
 
 **Multiple choice** — everyone taps one of four coloured answers on their phone:
 ```jsonc
@@ -179,7 +179,7 @@ The players are in the **UK**. Write for them:
 - **Check the question history first and never repeat** a previously used question, answer, or song (see "Never repeat a question").
 - If there's more than one wager, **use different question types for them**.
 - `points`, `bonus`, `seconds`, `correctIndex` must be **numbers**, not strings.
-- Use the **standard points** unless told otherwise: `question` = 3, `text` = 6, `slider` = 3, `bonus` = 2 on everything.
+- Use the **standard points** unless told otherwise: `question` = 3, `text` = 6, `slider` = 6, `bonus` = 2 on everything.
 - For a `slider`, every `slider*` field must be a **number** (not a string, no commas: `20000000`, never `"20,000,000"`), and `sliderMin < sliderAnswer < sliderMax` — an answer outside the range is unreachable and nobody can win.
 - **Vary where slider answers sit in their ranges** — position fractions spread over ~0.1–0.9, not clustered around the middle (see "Spread the answers across the ranges").
 - Groups come **first** in the array, sudden deaths **last**.
