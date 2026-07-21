@@ -551,7 +551,30 @@
   /* bomb aftermath line on the reveal. Deliberately NOT animated: the 900ms
      display poll rebuilds this DOM, and a restarting entrance animation sat
      permanently mid-fade — the explosion moment comes from showBanner instead */
-  .qb-bomb-line{font-family:'Archivo Black',sans-serif;font-size:24px;color:#ff6b6b;margin:10px auto;text-shadow:0 2px 10px rgba(0,0,0,0.6);}
+  /* The reveal's powerup lines are what STAYS on the projector (the big banner
+     is a 3s flash), so they get their own solid card — as bare text on the dark
+     stage they read as see-through from across the room. */
+  .qb-bomb-line{
+    font-family:'Archivo Black',sans-serif;font-size:24px;color:#fff;
+    margin:12px auto;max-width:900px;padding:14px 24px;border-radius:16px;
+    background:linear-gradient(160deg,#d42a10 0%,#ff7a1a 100%);
+    border:3px solid #ffd08a;
+    box-shadow:0 10px 44px rgba(255,90,20,0.4);
+    text-shadow:0 2px 0 #7a1200,0 4px 14px rgba(0,0,0,0.5);
+  }
+  /* a powerup that didn't fire is a damp squib, not a drama: muted card */
+  .qb-bomb-line.dud{
+    background:linear-gradient(160deg,#2a2f3d,#171a24);border-color:#3a4152;
+    color:var(--muted);box-shadow:none;text-shadow:none;font-size:20px;
+  }
+  .qb-bomb-line.oil{
+    background:linear-gradient(170deg,#20242e,#05060a);border-color:#46506a;
+    color:#cfe0f5;box-shadow:0 10px 40px rgba(0,0,0,0.6);
+  }
+  /* inside the nuke block the lines are already on a card — don't nest cards */
+  .qb-nuke-block .qb-bomb-line{
+    background:none;border:0;box-shadow:none;padding:0;margin:6px auto;max-width:none;color:#fff;
+  }
   /* the nuke's aftermath box on the reveal: alarm-striped border, every hit listed */
   .qb-nuke-block{
     border:4px dashed #ffd21f;border-radius:18px;padding:16px 22px;margin:14px auto;max-width:900px;
@@ -793,6 +816,28 @@
   async function savePlayers(list){
     await kvSet('qb-players', JSON.stringify(list));
   }
+  // ---------- one host mutation of qb-players at a time ----------
+  // qb-players is a single document, and the host tab changes it from several
+  // places (scoring, powerup folds, manual score edits). Each used to do its own
+  // read → change → write, so two overlapping cycles silently clobbered each
+  // other: the 1.2s poll's powerup fold and a question's scoring pass would each
+  // save their own stale copy. That erased banked picks AND rolled `puClaimed`
+  // back, so the phone was offered the same pick again next question — the
+  // "everyone keeps getting bombs" bug. Serialising the WHOLE cycle fixes it:
+  // read and write are one critical section, so the next caller always sees
+  // whatever the previous one just wrote. (Sign-up writes come from a phone, so
+  // they can't be covered here; they append and are unaffected by this bug.)
+  let playersQueue = Promise.resolve();
+  function withPlayers(mutate){
+    const run = playersQueue.then(async () => {
+      const players = await getPlayers();
+      const out = await mutate(players);
+      await savePlayers(players);
+      return out;
+    });
+    playersQueue = run.then(() => {}, () => {});   // a thrown mutation must not wedge the queue
+    return run;
+  }
   async function getGameState(){
     const text = await kvGet('qb-state');
     try{ return text ? JSON.parse(text) : defaultState(); }catch(e){ return defaultState(); }
@@ -988,6 +1033,19 @@
   // you a second pick for re-crossing it. Host tab only (it owns qb-players).
   function refreshPuHi(players){
     players.forEach(p => {
+      // Rungs are derived from the score, so changing PU_EVERY (or meeting a
+      // player who joined before powerups existed) would retroactively mint a
+      // pile of picks for points already scored — 4 at once for someone on 100.
+      // Rebase instead: keep however many picks they were genuinely OWED, and
+      // treat everything below their current score as already collected.
+      // puLadder records which spacing their rungs were counted under.
+      if(p.puLadder !== PU_EVERY){
+        const owed = Math.max(0, (p.puHi || 0) - (p.puClaimed || 0));
+        const rung = Math.max(0, Math.floor((p.score || 0) / PU_EVERY));
+        p.puHi = rung;
+        p.puClaimed = Math.max(0, rung - owed);
+        p.puLadder = PU_EVERY;
+      }
       const rung = Math.max(0, Math.floor((p.score || 0) / PU_EVERY));
       if(rung > (p.puHi || 0)) p.puHi = rung;
     });
@@ -1454,7 +1512,8 @@
     // pu = the live bank; puChosen = the sign-up picks, kept so a game reset
     // can refill everyone's slots to how they started the night
     players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound,
-      pu: joinDraftPu.slice(0, PU_MAX_SLOTS), puChosen: joinDraftPu.slice(0, PU_MAX_SLOTS), puHi: 0, puClaimed: 0 });
+      pu: joinDraftPu.slice(0, PU_MAX_SLOTS), puChosen: joinDraftPu.slice(0, PU_MAX_SLOTS),
+      puHi: 0, puClaimed: 0, puLadder: PU_EVERY });
     await savePlayers(players);
     saveStoredIdentity(id, name, joinDraftAvatar);
     myPlayerId = id;
@@ -2255,7 +2314,7 @@
                <div class="qb-bomb-line" style="font-size:20px;color:#ffb347;">${esc(e.fromName)} pays &minus;${e.selfCost} for pressing the button</div>
                <span class="maths">…and NOBODY wins any points on this question. Scorched earth.</span>
              </div>`
-          : `<div class="qb-bomb-line" style="color:var(--muted);">☢️💨 ${esc(e.fromName)}'s nuke failed to launch &mdash; wrong answer, warhead wasted!</div>`;
+          : `<div class="qb-bomb-line dud">☢️💨 ${esc(e.fromName)}'s nuke failed to launch &mdash; wrong answer, warhead wasted!</div>`;
       }
       if(e.type === 'bomb'){
         return e.fired
@@ -2263,9 +2322,9 @@
                <span class="maths">${esc(e.targetName)} ${e.targetWon
                  ? `won +${e.targetWon} on the question &minus; ${e.damage} bomb = ${e.targetNet >= 0 ? '+' : ''}${e.targetNet} overall`
                  : `won nothing on the question, so takes the full &minus;${e.damage}`}</span></div>`
-          : `<div class="qb-bomb-line" style="color:var(--muted);">💣💨 ${esc(e.fromName)}'s bomb on ${esc(e.targetName)} fizzled &mdash; you have to get it RIGHT to set it off!</div>`;
+          : `<div class="qb-bomb-line dud">💣💨 ${esc(e.fromName)}'s bomb on ${esc(e.targetName)} fizzled &mdash; you have to get it RIGHT to set it off!</div>`;
       }
-      return `<div class="qb-bomb-line" style="color:#8fb7d8;">🛢️ ${esc(e.fromName)} oiled ${esc(e.targetName)}'s screen!</div>`;
+      return `<div class="qb-bomb-line oil">🛢️ ${esc(e.fromName)} oiled ${esc(e.targetName)}'s screen!</div>`;
     }).join('');
   }
   // what happened to the kitty, for the reveal screen. An unwon kitty isn't
@@ -2494,14 +2553,18 @@
       if(state.status === 'reveal' && prev.status !== 'reveal'){
         // a detonated nuke outranks everything, then bombs, then normal noises
         const firedNuke = (state.puEvents || []).find(e => e.type === 'nuke' && e.fired);
-        const firedBomb = (state.puEvents || []).find(e => e.type === 'bomb' && e.fired);
+        // every bomb gets named: showBanner only paints one card, so two bombers
+        // in one question share it rather than one silently going unannounced
+        const firedBombs = (state.puEvents || []).filter(e => e.type === 'bomb' && e.fired);
         if(firedNuke){
           playSound('siren');
           setTimeout(() => playSound('boom'), 900);
           showBanner('nuke', `☢️💥 ${esc(firedNuke.fromName)} NUKED THE ROOM!<div style="font-size:26px;margin-top:10px;">&minus;${firedNuke.damage} to everyone else &middot; &minus;${firedNuke.selfCost} to ${esc(firedNuke.fromName)} &middot; nobody scores!</div>`);
-        } else if(firedBomb){
+        } else if(firedBombs.length){
           playSound('boom');
-          showBanner('bomb', `💣💥 ${esc(firedBomb.fromName)} BOMBED ${esc(firedBomb.targetName)}!<div style="font-size:26px;margin-top:10px;">&minus;${firedBomb.damage} points</div>`);
+          showBanner('bomb', firedBombs.length === 1
+            ? `💣💥 ${esc(firedBombs[0].fromName)} BOMBED ${esc(firedBombs[0].targetName)}!<div style="font-size:26px;margin-top:10px;">&minus;${firedBombs[0].damage} points</div>`
+            : `💣💥 ${firedBombs.length} BOMBS WENT OFF!<div style="font-size:26px;margin-top:10px;">${firedBombs.map(b => `${esc(b.fromName)} &rarr; ${esc(b.targetName)} &minus;${b.damage}`).join('<br>')}</div>`);
         } else {
           playSound(state.winnerId ? 'correct' : 'reveal');
           if(state.winnerId) showBanner('correct', `${state.winnerAvatar || ''} ${esc(state.winnerName || 'Someone')} got it correct!`);
@@ -2941,12 +3004,11 @@
   }
 
   async function adjustScore(id, delta){
-    const players = await getPlayers();
-    const p = players.find(x => x.id === id);
-    if(!p) return;
-    p.score = (p.score || 0) + delta;
-    refreshPuHi(players);   // a nudge over a 50s rung still earns the pick
-    await savePlayers(players);
+    await withPlayers(players => {
+      const p = players.find(x => x.id === id);
+      if(p) p.score = (p.score || 0) + delta;
+      refreshPuHi(players);   // a nudge over a rung still earns the pick
+    });
     renderAdmin();
   }
 
@@ -2994,11 +3056,12 @@
     const raw = el ? el.value.trim() : '';
     const value = parseInt(raw, 10);
     if(!Number.isFinite(value)){ alert('Enter a number — negatives are allowed.'); return; }
-    const players = await getPlayers();
-    const p = players.find(x => x.id === editingScoreId);
-    if(p) p.score = value;
-    refreshPuHi(players);
-    await savePlayers(players);
+    const target = editingScoreId;
+    await withPlayers(players => {
+      const p = players.find(x => x.id === target);
+      if(p) p.score = value;
+      refreshPuHi(players);
+    });
     editingScoreId = null;
     renderAdmin();
   }
@@ -3006,14 +3069,15 @@
     const nameEl = document.getElementById('qb-edit-name');
     const name = (nameEl ? nameEl.value : editName).trim();
     if(!name){ alert('The name cannot be empty.'); return; }
-    const players = await getPlayers();
-    const p = players.find(x => x.id === editingPlayerId);
-    if(p){
-      p.name = name;
-      p.avatar = editAvatar;
-      p.hostEdited = true;
-    }
-    await savePlayers(players);
+    const target = editingPlayerId;
+    await withPlayers(players => {
+      const p = players.find(x => x.id === target);
+      if(p){
+        p.name = name;
+        p.avatar = editAvatar;
+        p.hostEdited = true;
+      }
+    });
     editingPlayerId = null;
     renderAdmin();
   }
@@ -3487,18 +3551,18 @@
     const s = await getGameState();
     if(!s.wagerActive || s.wagerPhase !== 'betting') return false;
     const bets = await fetchAntes(s.anteEpoch);
-    const players = await getPlayers();
     const betMap = {};
-    Object.values(bets).forEach(b => {
-      if(!b || !b.id) return;
-      const p = players.find(pl => pl.id === b.id);
-      if(!p) return;
-      const staked = Math.max(0, Math.min(b.amount || 0, MAX_BET)); // cap, but scores may go negative
-      if(!staked) return;
-      p.score = (p.score || 0) - staked;
-      betMap[b.id] = staked;
+    await withPlayers(players => {
+      Object.values(bets).forEach(b => {
+        if(!b || !b.id) return;
+        const p = players.find(pl => pl.id === b.id);
+        if(!p) return;
+        const staked = Math.max(0, Math.min(b.amount || 0, MAX_BET)); // cap, but scores may go negative
+        if(!staked) return;
+        p.score = (p.score || 0) - staked;
+        betMap[b.id] = staked;
+      });
     });
-    await savePlayers(players);
     s.bets = betMap;
     s.wagerPhase = 'playing';
     // song wagers open the buzzers; question/text wagers run the 3-2-1 first and
@@ -3579,26 +3643,29 @@
   // hand earned powerup picks over: phones only write their wish to qb-pupick;
   // this (the host tab, sole owner of qb-players) banks it and clears the key.
   // Invalid or stale picks are deleted without effect.
-  async function foldPuPicks(players){
-    if(!players.some(p => puPending(p) > 0)) return false;
+  // Reads the phones' claim wishes, then banks them inside the players queue so
+  // a question being scored at the same moment can't overwrite the result.
+  async function foldPuPicks(){
     let picks = {};
     try{
       const res = await fetch(puPickUrl(), { cache:'no-store' });
       picks = res.ok ? ((await res.json()) || {}) : {};
     }catch(e){ return false; }
-    let changed = false;
-    for(const [pid, pick] of Object.entries(picks)){
-      const p = players.find(x => x.id === pid);
-      if(p && pick && POWERUPS[pick.type] && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS
-          && puCanHold(puList(p), pick.type)){   // e.g. a second nuke — reject, keep the pick banked
-        p.pu = puList(p).concat(pick.type);
-        p.puClaimed = (p.puClaimed || 0) + 1;
-        changed = true;
+    if(!Object.keys(picks).length) return false;   // nothing asked for: skip the queue entirely
+    return withPlayers(players => {
+      let changed = false;
+      for(const [pid, pick] of Object.entries(picks)){
+        const p = players.find(x => x.id === pid);
+        if(p && pick && POWERUPS[pick.type] && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS
+            && puCanHold(puList(p), pick.type)){   // e.g. a second nuke — reject, the pick stays owed
+          p.pu = puList(p).concat(pick.type);
+          p.puClaimed = (p.puClaimed || 0) + 1;
+          changed = true;
+        }
+        try{ fetch(puPickUrl(pid), { method:'DELETE' }); }catch(e){}
       }
-      try{ fetch(puPickUrl(pid), { method:'DELETE' }); }catch(e){}
-    }
-    if(changed) await savePlayers(players);
-    return changed;
+      return changed;
+    });
   }
 
   async function markCorrect(half){
@@ -3614,14 +3681,14 @@
     const wonKitty = s.wagerActive && stakedIn(s, buzz.id);
     const matched = wonKitty ? loneBetBonus(s, buzz.id) : 0;
     const kitty = wonKitty ? kittyTotal(s) + matched : 0;
-    const players = await getPlayers();
-    const p = players.find(pl => pl.id === buzz.id);
-    if(p){
-      p.score = (p.score || 0) + points + kitty;
-      recordReaction(p, buzz, s);
-    }
-    refreshPuHi(players);   // song-round winnings climb the powerup rungs too
-    await savePlayers(players);
+    await withPlayers(players => {
+      const p = players.find(pl => pl.id === buzz.id);
+      if(p){
+        p.score = (p.score || 0) + points + kitty;
+        recordReaction(p, buzz, s);
+      }
+      refreshPuHi(players);   // song-round winnings climb the powerup rungs too
+    });
 
     s.status = 'reveal';
     s.winnerId = buzz.id;
@@ -3803,7 +3870,6 @@
     // slider rounds are pure numbers, so they score themselves
     if(s.sliderMode) return scoreSlider(s, acceptAll);
     const raw = await fetchAnswers(s.answerEpoch);
-    const players = await getPlayers();
     // answers are only valid inside the window, measured in pure server time
     const cutoff = (s.buzzersOpenedAt || 0) + (s.qSeconds || QUESTION_SECONDS) * 1000 + 600; // small grace for network lag
     const valid = {};
@@ -3812,23 +3878,27 @@
       if(!acceptAll && s.buzzersOpenedAt && a.ts && a.ts > cutoff) return;
       valid[a.id] = a;
     });
-    const results = players.map(p => {
-      const a = valid[p.id];
-      if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
-      const ms = (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null;
-      return { id: p.id, name: p.name, avatar: p.avatar, answered: true, choice: a.choice, correct: a.choice === s.qCorrect, ms };
+    // read → score → write is one critical section, so a powerup fold landing
+    // mid-scoring can't be overwritten (and can't overwrite these scores)
+    let results = [];
+    await withPlayers(async (players) => {
+      results = players.map(p => {
+        const a = valid[p.id];
+        if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
+        const ms = (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null;
+        return { id: p.id, name: p.name, avatar: p.avatar, answered: true, choice: a.choice, correct: a.choice === s.qCorrect, ms };
+      });
+      const rightOnes = results.filter(r => r.correct).sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
+      rightOnes.forEach((r, i) => {
+        let won = s.qPoints || 0;
+        if(i === 0 && rightOnes.length){ r.fastest = true; won += s.qBonus || 0; }
+        r.won = won;
+        const p = players.find(pl => pl.id === r.id);
+        if(p) p.score = (p.score || 0) + won;
+      });
+      settleKitty(s, rightOnes, players);
+      await applyPowerups(s, results, players);
     });
-    const rightOnes = results.filter(r => r.correct).sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
-    rightOnes.forEach((r, i) => {
-      let won = s.qPoints || 0;
-      if(i === 0 && rightOnes.length){ r.fastest = true; won += s.qBonus || 0; }
-      r.won = won;
-      const p = players.find(pl => pl.id === r.id);
-      if(p) p.score = (p.score || 0) + won;
-    });
-    settleKitty(s, rightOnes, players);
-    await applyPowerups(s, results, players);
-    await savePlayers(players);
     s.qResults = results;
     s.status = 'reveal';
     await saveGameState(s);
@@ -3845,7 +3915,6 @@
   // bonus. The kitty still goes to one person: the closest, fastest deciding it.
   async function scoreSlider(s, acceptAll){
     const raw = await fetchAnswers(s.answerEpoch);
-    const players = await getPlayers();
     const cutoff = (s.buzzersOpenedAt || 0) + (s.qSeconds || QUESTION_SECONDS) * 1000 + 600; // small grace for network lag
     const valid = {};
     Object.values(raw).forEach(a => {
@@ -3853,34 +3922,36 @@
       if(!acceptAll && s.buzzersOpenedAt && a.ts && a.ts > cutoff) return;
       valid[a.id] = a;
     });
-    const results = players.map(p => {
-      const a = valid[p.id];
-      if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
-      return {
-        id: p.id, name: p.name, avatar: p.avatar, answered: true,
-        value: a.value, text: fmtGuess(a.value, s.sliderUnit, groupNums(s.sliderMax)),
-        dist: Math.abs(a.value - s.sliderAnswer),
-        ms: (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null
-      };
-    });
-    const guesses = results.filter(r => r.answered);
-    if(guesses.length){
-      const best = Math.min(...guesses.map(r => r.dist));
-      const band = Number(s.sliderBand) || 0;
-      guesses.forEach(r => {
-        r.correct = r.dist === best || (band > 0 && r.dist <= band);
-        if(!r.correct) return;
-        r.bullseye = isBullseye(r.dist, s.sliderStep);
-        r.won = (s.qPoints || 0) + (r.bullseye ? (s.qBonus || 0) : 0);
-        const p = players.find(pl => pl.id === r.id);
-        if(p) p.score = (p.score || 0) + r.won;
+    let results = [];
+    await withPlayers(async (players) => {
+      results = players.map(p => {
+        const a = valid[p.id];
+        if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
+        return {
+          id: p.id, name: p.name, avatar: p.avatar, answered: true,
+          value: a.value, text: fmtGuess(a.value, s.sliderUnit, groupNums(s.sliderMax)),
+          dist: Math.abs(a.value - s.sliderAnswer),
+          ms: (s.buzzersOpenedAt && a.ts && a.ts > s.buzzersOpenedAt) ? a.ts - s.buzzersOpenedAt : null
+        };
       });
-    }
-    // closest first, and the quicker thumb breaks a dead heat for the kitty
-    const rightOnes = guesses.filter(r => r.correct).sort((a, b) => (a.dist - b.dist) || ((a.ms || 9e9) - (b.ms || 9e9)));
-    settleKitty(s, rightOnes, players);
-    await applyPowerups(s, results, players);
-    await savePlayers(players);
+      const guesses = results.filter(r => r.answered);
+      if(guesses.length){
+        const best = Math.min(...guesses.map(r => r.dist));
+        const band = Number(s.sliderBand) || 0;
+        guesses.forEach(r => {
+          r.correct = r.dist === best || (band > 0 && r.dist <= band);
+          if(!r.correct) return;
+          r.bullseye = isBullseye(r.dist, s.sliderStep);
+          r.won = (s.qPoints || 0) + (r.bullseye ? (s.qBonus || 0) : 0);
+          const p = players.find(pl => pl.id === r.id);
+          if(p) p.score = (p.score || 0) + r.won;
+        });
+      }
+      // closest first, and the quicker thumb breaks a dead heat for the kitty
+      const rightOnes = guesses.filter(r => r.correct).sort((a, b) => (a.dist - b.dist) || ((a.ms || 9e9) - (b.ms || 9e9)));
+      settleKitty(s, rightOnes, players);
+      await applyPowerups(s, results, players);
+    });
     s.qResults = results;
     s.status = 'reveal';
     await saveGameState(s);
@@ -3953,25 +4024,26 @@
   async function confirmTextScores(){
     const s = await getGameState();
     if(!s.qMode || !s.textMode || !s.reviewing) return false;
-    const players = await getPlayers();
     const pending = s.pendingAnswers || [];
     const marks = reviewMarks || {};
-    const results = players.map(p => {
-      const a = pending.find(x => x.id === p.id);
-      if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
-      return { id: p.id, name: p.name, avatar: p.avatar, answered: true, text: a.text, correct: !!marks[a.id], ms: a.ms };
+    let results = [];
+    await withPlayers(async (players) => {
+      results = players.map(p => {
+        const a = pending.find(x => x.id === p.id);
+        if(!a) return { id: p.id, name: p.name, avatar: p.avatar, answered: false };
+        return { id: p.id, name: p.name, avatar: p.avatar, answered: true, text: a.text, correct: !!marks[a.id], ms: a.ms };
+      });
+      const rightOnes = results.filter(r => r.correct).sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
+      rightOnes.forEach((r, i) => {
+        let won = s.qPoints || 0;
+        if(i === 0){ r.fastest = true; won += s.qBonus || 0; }
+        r.won = won;
+        const p = players.find(pl => pl.id === r.id);
+        if(p) p.score = (p.score || 0) + won;
+      });
+      settleKitty(s, rightOnes, players);
+      await applyPowerups(s, results, players);
     });
-    const rightOnes = results.filter(r => r.correct).sort((a, b) => (a.ms || 9e9) - (b.ms || 9e9));
-    rightOnes.forEach((r, i) => {
-      let won = s.qPoints || 0;
-      if(i === 0){ r.fastest = true; won += s.qBonus || 0; }
-      r.won = won;
-      const p = players.find(pl => pl.id === r.id);
-      if(p) p.score = (p.score || 0) + won;
-    });
-    settleKitty(s, rightOnes, players);
-    await applyPowerups(s, results, players);
-    await savePlayers(players);
     s.qResults = results;
     s.reviewing = false;
     s.status = 'reveal';
@@ -3985,12 +4057,10 @@
     const s = await getGameState();
     const buzz = s.status === 'live' ? earliestBuzz(await fetchBuzzes(s.buzzEpoch), s.lockedOut) : null;
     if(!buzz) return false;
-    const players = await getPlayers();
-    const p = players.find(pl => pl.id === buzz.id);
-    if(p){
-      recordReaction(p, buzz, s);
-      await savePlayers(players);
-    }
+    await withPlayers(players => {
+      const p = players.find(pl => pl.id === buzz.id);
+      if(p) recordReaction(p, buzz, s);
+    });
     s.lockedOut = s.lockedOut || [];
     if(!s.lockedOut.includes(buzz.id)) s.lockedOut.push(buzz.id);
     s.status = 'live';
@@ -4004,20 +4074,24 @@
     const players = await getPlayers();
     const p = players.find(x => x.id === id);
     if(!confirm(`Remove ${p ? p.name : 'this player'} from the game? Their score goes with them.`)) return false;
-    await savePlayers(players.filter(x => x.id !== id));
+    // splice in place: withPlayers saves the array it handed out
+    await withPlayers(list => {
+      const i = list.findIndex(x => x.id === id);
+      if(i >= 0) list.splice(i, 1);
+    });
     renderAdmin();
   }
 
   async function resetGame(){
     if(!confirm('Reset all scores and end the current round? Your round library stays intact.')) return false;
-    const players = await getPlayers();
-    players.forEach(p => {
-      p.score = 0; delete p.bestReaction; delete p.buzzes;
-      // powerups back to the sign-up picks, rungs back to zero
-      if(Array.isArray(p.puChosen)) p.pu = p.puChosen.slice(0, PU_MAX_SLOTS);
-      p.puHi = 0; p.puClaimed = 0;
+    await withPlayers(players => {
+      players.forEach(p => {
+        p.score = 0; delete p.bestReaction; delete p.buzzes;
+        // powerups back to the sign-up picks, rungs back to zero
+        if(Array.isArray(p.puChosen)) p.pu = p.puChosen.slice(0, PU_MAX_SLOTS);
+        p.puHi = 0; p.puClaimed = 0; p.puLadder = PU_EVERY;
+      });
     });
-    await savePlayers(players);
     try{ fetch(puPickUrl(), { method:'DELETE' }); }catch(e){}   // no stale claim wishes
     const fresh = defaultState();
     fresh.quizTitle = (await getGameState()).quizTitle || null; // a reset keeps the quiz name
@@ -4426,8 +4500,8 @@
     const liveAnswers = answering ? await fetchAnswers(state.answerEpoch) : {};
     // host's private intel: powerups armed on the live question
     const livePowers = (state.qMode && state.status === 'live' && state.puEpoch) ? await fetchPowers(state.puEpoch) : {};
-    // bank any earned powerup picks phones have asked for (single writer)
-    await foldPuPicks(players);
+    // bank any earned powerup picks phones have asked for (queued, single writer)
+    await foldPuPicks();
     if(seq !== adminSeq) return;
 
     // question countdown: the host's tab is the single writer, so it also does
