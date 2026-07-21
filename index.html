@@ -359,6 +359,15 @@
 
   /* answer countdown + reaction time inside the buzz flash */
   .qb-countdown{font-family:'Archivo Black',sans-serif;font-size:64px;margin-top:10px;}
+  /* the 3-2-1 that opens a question: one number, as big as the stage allows */
+  .qb-startcount{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;min-height:46vh;}
+  .qb-startcount .num{
+    font-family:'Archivo Black',sans-serif;font-size:min(34vw,300px);line-height:1;color:var(--gold);
+    text-shadow:0 0 60px rgba(224,160,58,0.55);animation:qb-pop 1s ease-out;
+  }
+  .qb-startcount .go{font-size:min(18vw,150px);color:#4cc38a;text-shadow:0 0 60px rgba(76,195,138,0.6);}
+  .qb-startcount .lbl{font-size:26px;opacity:0.85;letter-spacing:2px;text-transform:uppercase;}
+  @keyframes qb-pop{0%{transform:scale(2.1);opacity:0;}45%{transform:scale(1);opacity:1;}100%{transform:scale(1);opacity:1;}}
   .qb-countdown.warn{color:#ff9f30;}
   .qb-countdown.crit{color:#ff3b30;animation:qb-crit-flash .4s steps(2,start) infinite;}
   /* the phone's own countdown: orange for the last 10s, flashing red for the last 3 */
@@ -634,6 +643,10 @@
       // question rounds: multiple choice (qAnswers set), typed text (textMode)
       // or a slide-to-guess number (sliderMode). All three share qMode's
       // everyone-answers-on-the-clock flow.
+      // a question round opens with a 3-2-1 on the projector so it isn't a jump
+      // scare. The host's tab owns the clock: while countdown is true there's no
+      // answerEpoch, so nothing is answerable and nothing is server-stamped yet.
+      countdown:false,
       qMode:false, textMode:false, sliderMode:false, reviewing:false, question:null, qImage:null, qAnswers:[], qCorrect:0,
       textAnswer:null, qPoints:0, qBonus:0, qSeconds:0, answerEpoch:'', qResults:[], pendingAnswers:[],
       // slider rounds: players drag between min and max in steps of sliderStep.
@@ -765,6 +778,8 @@
   const QUESTION_SECONDS = 15;  // to pick an answer on a multiple-choice question
   const TEXT_SECONDS = 25;      // to type an answer on a text round
   const MAX_BET = 100;          // wager cap; bets may push a score negative
+  const DEFAULT_POINTS = 3;     // a normal question
+  const SLIDER_POINTS = 6;      // sliders are hardest to get exactly right
   const ANSWER_COLORS = ['#e63946', '#2e86de', '#f4b942', '#4cc38a'];
   const ANSWER_SHAPES = ['▲', '◆', '●', '■'];
   function buzzUrl(epoch, playerId){
@@ -838,6 +853,13 @@
   function loneBetBonus(s, winnerId){
     const ids = Object.keys(s.bets || {});
     return (ids.length === 1 && ids[0] === winnerId) ? (s.bets[ids[0]] || 0) : 0;
+  }
+  // You can only win the kitty if you put something in it. Without this a player
+  // who passed could edge out a bettor on speed/distance and walk off with the
+  // stakes they never risked — which makes betting a mug's game. Non-bettors
+  // still win the question's normal points, they just can't touch the pot.
+  function stakedIn(s, id){
+    return ((s.bets || {})[id] || 0) > 0;
   }
 
   // ---------- slider rounds ----------
@@ -976,7 +998,11 @@
     // so every ear hears one clock and per-phone drift doesn't matter
     tick(){ tone(1100, 0, 0.03, 'sine', 0.12); },
     tickWarn(){ tone(1400, 0, 0.05, 'square', 0.16); },
-    tickCrit(){ tone(1760, 0, 0.07, 'square', 0.22); tone(880, 0, 0.07, 'square', 0.15); }
+    tickCrit(){ tone(1760, 0, 0.07, 'square', 0.22); tone(880, 0, 0.07, 'square', 0.15); },
+    // the 3-2-1 that opens a question: three fat pips, then a fanfare on GO, so
+    // the question landing never feels like a jump scare
+    pip(){ tone(587, 0, 0.16, 'square', 0.34); tone(294, 0, 0.16, 'triangle', 0.22); },
+    go(){ [523, 659, 784, 1047].forEach((f, i) => tone(f, i * 0.05, 0.34, 'square', 0.3)); tone(196, 0, 0.42, 'sawtooth', 0.24, 392); }
   };
 
   // every player gets their own comedy buzzer, assigned at random when they join
@@ -1460,7 +1486,16 @@
 
     // betting and question rounds replace the buzzer with their own controls
     let centreHTML;
-    if(betting){
+    if(state.countdown && state.status === 'live'){
+      // the projector is running its 3-2-1; phones just brace. The numbers stay
+      // on the big screen so the room counts together instead of 8 phone clocks.
+      centreHTML = `
+        <div class="qb-buzzer-wrap">
+          <div class="qb-status-line" style="font-size:34px;">👀 Get ready&hellip;</div>
+          <div class="qb-status-sub">Eyes on the screen &mdash; question incoming!</div>
+        </div>
+      `;
+    } else if(betting){
       centreHTML = `
         <div class="qb-buzzer-wrap">
           <div class="qb-wager-badge">💰 WAGER ROUND</div>
@@ -1479,7 +1514,7 @@
             <input class="qb-input" id="qb-bet-amount" type="number" inputmode="numeric" min="1" max="${MAX_BET}" placeholder="Points to bet (max ${MAX_BET})" style="text-align:center;" />
             <button class="qb-btn qb-btn-gold" data-action="place-bet">Lock in my bet</button>
             <button class="qb-btn qb-btn-ghost" data-action="pass-bet">🚫 No bet &mdash; I'm out</button>
-            <div class="qb-status-sub">Betting is optional &mdash; you play the question either way. Tap <strong>No bet</strong> so the host knows not to wait for you.</div>
+            <div class="qb-status-sub">Betting is optional &mdash; you play the question either way, but <strong>only bettors can win the kitty</strong>. Tap <strong>No bet</strong> so the host knows not to wait for you.</div>
           `}
         </div>
       `;
@@ -1569,7 +1604,7 @@
     // holds steady, a rebuild would gain nothing and cost us the clue image (its
     // load restarts from scratch) and any half-dragged slider, so we patch instead.
     const shape = JSON.stringify([
-      state.status, state.qMode, state.textMode, state.sliderMode, state.reviewing,
+      state.status, state.qMode, state.textMode, state.sliderMode, state.reviewing, state.countdown,
       state.answerEpoch, state.anteEpoch, state.buzzEpoch, state.wagerActive, state.wagerPhase,
       state.question, state.qImage, state.qAnswers, state.wagerClue, state.wagerImage, state.carryKitty,
       state.sliderMin, state.sliderMax, state.sliderStep, state.sliderUnit,
@@ -1787,6 +1822,10 @@
   let displayTick = null;
   let displayBuzzTimer = null;
   let displayQTimer = null;   // countdown for multiple-choice questions
+  // the 3-2-1 opening a question. Purely visual and driven by the display's own
+  // clock (like displayBuzzTimer): the host still owns when the question really
+  // opens, so a second of drift here can't affect anyone's score.
+  let displayStartCount = null;
   let prevDisplaySnap = null;
   // renders await several fetches, so a slow one can finish after a newer one
   // started; each render takes a ticket and abandons itself if it went stale
@@ -1930,6 +1969,21 @@
             renderDisplay();   // flip straight to the "checking answers" view
           }
         }
+        // the 3-2-1 before a question: repaint the number in place and pip once
+        // per step, so the count never stutters on the 900ms poll
+        if(displayStartCount){
+          const remain = Math.max(0, Math.ceil((displayStartCount.endsAt - Date.now()) / 1000));
+          if(remain !== displayStartCount.shown){
+            displayStartCount.shown = remain;
+            const el = document.getElementById('qb-startcount');
+            if(el){
+              el.innerHTML = remain > 0
+                ? `<div class="num">${remain}</div><div class="lbl">Get ready&hellip;</div>`
+                : `<div class="num go">GO!</div>`;
+            }
+            playSound(remain > 0 ? 'pip' : 'go');
+          }
+        }
       }, 200);
     }
     const seq = ++displaySeq;
@@ -1957,6 +2011,16 @@
     const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     const qAnswersLive = answering ? await fetchAnswers(state.answerEpoch) : {};
     if(seq !== displaySeq) return;
+
+    // the 3-2-1 opening a question: start this display's own clock once per round
+    const counting = !!state.countdown && state.status === 'live' && !isLobby && !showStandings;
+    if(counting){
+      if(!displayStartCount || displayStartCount.roundId !== state.roundId){
+        displayStartCount = { roundId: state.roundId, endsAt: Date.now() + COUNTDOWN_SECONDS * 1000, shown: null };
+      }
+    } else {
+      displayStartCount = null;
+    }
 
     if(answering && !state.reviewing){
       if(!displayQTimer || displayQTimer.epoch !== state.answerEpoch){
@@ -2026,10 +2090,20 @@
     // remember which question (if any) this render is painting, for the patch above
     root.setAttribute('data-qepoch', paintingQuestion ? state.answerEpoch : '');
 
+    // same idea for the 3-2-1: paint it once, then let displayTick swap the
+    // number. Rebuilding it every poll would restart the pop animation.
+    if(counting && !showIntro && root.getAttribute('data-counting') === state.roundId) return;
+    root.setAttribute('data-counting', counting && !showIntro ? state.roundId : '');
+
     let stagePill = '';
     let centre;
 
-    if(showIntro){
+    if(counting && !showIntro){
+      const remain = Math.max(0, Math.ceil((displayStartCount.endsAt - Date.now()) / 1000));
+      centre = `<div class="qb-startcount" id="qb-startcount">${remain > 0
+        ? `<div class="num">${remain}</div><div class="lbl">Get ready&hellip;</div>`
+        : `<div class="num go">GO!</div>`}</div>`;
+    } else if(showIntro){
       const ri = state.showRoundIntro;
       centre = `
         <div class="qb-wager-splash" style="margin-top:30px;">
@@ -2064,7 +2138,8 @@
             <li>Confident? <strong>Bet up to ${MAX_BET} points on yourself</strong> on your phone, before the song starts. You can even go into <strong>minus points</strong>.</li>
             <li>Not feeling it? Tap <strong>No bet</strong> so the host isn't left waiting.</li>
             <li>When betting closes, the question or song plays <strong>as normal</strong>.</li>
-            <li>All bets pile into one <strong>kitty</strong>. Whoever wins this question <strong>takes the whole kitty</strong>, on top of the normal points.</li>
+            <li>All bets pile into one <strong>kitty</strong>. The best answer <strong>from someone who bet</strong> takes the whole kitty, on top of the normal points.</li>
+            <li>🚫 <strong>Didn't bet? You can't win the pot.</strong> You still get the normal points for a right answer &mdash; but the kitty is only for those who risked something.</li>
             <li>If nobody gets it, the kitty <strong>rolls over to the next wager</strong> and keeps growing. Someone else wins? They pocket your stake.</li>
             <li>🐔 <strong>Only one of you brave enough to bet?</strong> If they win it, the house <strong>doubles their stake</strong> &mdash; a solo bet is real double-or-nothing.</li>
             <li>Betting is optional: everyone keeps their buzzer either way.</li>
@@ -2302,6 +2377,11 @@
   // clicking anything. MC + slider only — typed answers can be changed right up
   // to the whistle, so auto-ending a text round would eat those edits.
   let adminAutoEnd = null;
+  // the 3-2-1 before a question. The host tab is the single writer, so it owns
+  // the clock: when this local timer ends it mints the answer epoch and stamps
+  // the server clock, which is the moment the question truly opens.
+  let adminCountdown = null;
+  const COUNTDOWN_SECONDS = 3;
   let adminTick = null;
   let adminBuzzTimer = null;
   let prevAllDecided = null;   // anteEpoch we've already chimed "everyone's bet" for
@@ -2435,6 +2515,30 @@
     editingPlayerId = null;
     renderAdmin();
   }
+  // typing a score straight in beats clicking ±1 twelve times. Like the name
+  // editor, this pauses the admin poll (see the adminPoll guard) so the repaint
+  // can't wipe what's being typed.
+  let editingScoreId = null;
+  function openScoreEditor(id){
+    editingScoreId = id;
+    renderAdmin();
+  }
+  function closeScoreEditor(){
+    editingScoreId = null;
+    renderAdmin();
+  }
+  async function saveScoreEdit(){
+    const el = document.getElementById('qb-edit-score');
+    const raw = el ? el.value.trim() : '';
+    const value = parseInt(raw, 10);
+    if(!Number.isFinite(value)){ alert('Enter a number — negatives are allowed.'); return; }
+    const players = await getPlayers();
+    const p = players.find(x => x.id === editingScoreId);
+    if(p) p.score = value;
+    await savePlayers(players);
+    editingScoreId = null;
+    renderAdmin();
+  }
   async function savePlayerEdit(){
     const nameEl = document.getElementById('qb-edit-name');
     const name = (nameEl ? nameEl.value : editName).trim();
@@ -2483,7 +2587,7 @@
     formSDAnswer = '';
     formSliderMin = 0; formSliderMax = 100; formSliderAnswer = 50;
     formSliderStep = 0; formSliderBand = 0; formSliderUnit = '';
-    formQPoints = 3;
+    formQPoints = DEFAULT_POINTS;
     formQBonus = 1;
     formQSeconds = QUESTION_SECONDS;
     renderAdmin();
@@ -2516,7 +2620,7 @@
     formSliderStep = Number(round.sliderStep) || 0;
     formSliderBand = Number(round.sliderBand) || 0;
     formSliderUnit = round.sliderUnit || '';
-    formQPoints = round.points || 3;
+    formQPoints = round.points || (round.type === 'slider' ? SLIDER_POINTS : DEFAULT_POINTS);
     formQBonus = Number.isInteger(round.bonus) ? round.bonus : 1;
     formQSeconds = round.seconds || (round.type === 'text' ? TEXT_SECONDS : QUESTION_SECONDS);
     renderAdmin();
@@ -2868,7 +2972,9 @@
         s.anteEpoch = makeId('a');
         s.answerEpoch = '';
       } else {
-        s.answerEpoch = makeId('q');
+        // 3-2-1 first: adminTick mints the epoch and stamps the clock when it ends
+        s.countdown = true;
+        s.answerEpoch = '';
       }
     } else if(r.type === 'sudden'){
       // fastest finger: the question shows on the projector, normal buzz rules —
@@ -2928,12 +3034,24 @@
     await savePlayers(players);
     s.bets = betMap;
     s.wagerPhase = 'playing';
-    // song wagers open the buzzers; question/text wagers reveal the question
-    // and start its answer window instead
-    if(s.qMode) s.answerEpoch = makeId('q');
+    // song wagers open the buzzers; question/text wagers run the 3-2-1 first and
+    // adminTick starts their answer window at the end of it
+    if(s.qMode){ s.countdown = true; s.answerEpoch = ''; }
     else s.buzzEpoch = makeId('e');
     await saveGameState(s);
-    await stampBuzzersOpened();
+    if(!s.qMode) await stampBuzzersOpened();
+    renderAdmin();
+  }
+
+  // the 3-2-1 has finished: open the question for real. Single writer (host tab),
+  // and it re-reads state so a host who moved on mid-countdown isn't overridden.
+  async function startCountedQuestion(roundId){
+    const s = await getGameState();
+    if(!s.countdown || s.roundId !== roundId || s.status !== 'live') return false;
+    s.countdown = false;
+    s.answerEpoch = makeId('q');
+    await saveGameState(s);
+    await stampBuzzersOpened();   // the answer window starts now, in server time
     renderAdmin();
   }
 
@@ -2998,11 +3116,12 @@
     const stage = s.stages[s.stageIndex];
     let points = stage ? stage.points : 0;
     if(half) points = Math.ceil(points / 2);
-    // wager rounds are winner-takes-all: the round winner scoops the whole
-    // kitty (everyone's stakes, including their own if they bet, plus anything
-    // that rolled over from a wager nobody won). A lone bet is house-matched.
-    const matched = s.wagerActive ? loneBetBonus(s, buzz.id) : 0;
-    const kitty = s.wagerActive ? kittyTotal(s) + matched : 0;
+    // wager rounds are winner-takes-all, but only for someone who staked: the
+    // winner scoops every stake plus anything rolled over from an unwon wager.
+    // A lone bet is house-matched. A non-bettor winning leaves the pot to roll.
+    const wonKitty = s.wagerActive && stakedIn(s, buzz.id);
+    const matched = wonKitty ? loneBetBonus(s, buzz.id) : 0;
+    const kitty = wonKitty ? kittyTotal(s) + matched : 0;
     const players = await getPlayers();
     const p = players.find(pl => pl.id === buzz.id);
     if(p){
@@ -3019,8 +3138,12 @@
     s.betWon = kitty;
     s.betMatched = matched;
     if(s.wagerActive){
-      s.betsLost = 0; s.kittyRolled = 0; s.carryKitty = 0;  // the pot's been claimed, nothing carries on
-      s.wagerActive = false;
+      if(wonKitty){
+        s.betsLost = 0; s.kittyRolled = 0; s.carryKitty = 0;  // the pot's been claimed, nothing carries on
+        s.wagerActive = false;
+      } else {
+        rollKittyOver(s);   // right answer, but they hadn't staked — the pot lives on
+      }
     }
     await saveGameState(s);
     scheduleEndOfRoundStandings(s);
@@ -3038,12 +3161,16 @@
     s.betMatched = 0;
     s.wagerActive = false;
   }
-  // wager question rounds: the best correct answer takes the whole kitty
-  // (rightOnes arrives already ranked); if nobody got it, the pot rolls over
+  // wager question rounds: the best correct answer *that staked* takes the whole
+  // kitty (rightOnes arrives already ranked). If nobody who bet got it right —
+  // including when only non-bettors did — the pot rolls over to the next wager.
   function settleKitty(s, rightOnes, players){
     if(!s.wagerActive) return;
-    if(rightOnes.length){
-      const w = rightOnes[0];
+    // the pot goes to the best-placed player who actually staked; everyone else
+    // getting the question right just takes the normal points
+    const eligible = rightOnes.filter(r => stakedIn(s, r.id));
+    if(eligible.length){
+      const w = eligible[0];
       // a lone bet is house-matched: winning your own solo stake back would
       // otherwise be a net nothing (see loneBetBonus)
       const matched = loneBetBonus(s, w.id);
@@ -3698,6 +3825,14 @@
     } else {
       adminQTimer = null;
     }
+    // the 3-2-1 opening a question: start the local clock once per round
+    if(state.countdown && state.status === 'live'){
+      if(!adminCountdown || adminCountdown.roundId !== state.roundId){
+        adminCountdown = { roundId: state.roundId, endsAt: Date.now() + COUNTDOWN_SECONDS * 1000, fired: false };
+      }
+    } else {
+      adminCountdown = null;
+    }
     // all in? end the question early after a 2s beat (adminTick fires it), so
     // the host never has to click "end it now". Not for text rounds — typed
     // answers can be revised until the clock runs out.
@@ -3752,6 +3887,8 @@
       let phasePanel;
       if(betting){
         phasePanel = bettingPanel;
+      } else if(state.countdown && state.status === 'live'){
+        phasePanel = `<div class="qb-buzzed-banner"><div class="who">3&hairsp;&middot;&hairsp;2&hairsp;&middot;&hairsp;1&hellip;</div><div class="qb-small">The projector is counting the room in &mdash; the question opens in a moment.</div></div>`;
       } else if(state.status !== 'live'){
         phasePanel = `<p class="qb-small">Scored &amp; revealed. Load the next round when you're ready.</p>`;
       } else if(state.reviewing){
@@ -3991,13 +4128,24 @@
                   <button class="qb-btn qb-btn-gold qb-btn-small" data-action="save-edit-player">Save</button>
                 </div>
               </div>
+            ` : p.id === editingScoreId ? `
+              <div class="qb-player-admin-row">
+                <span>${p.avatar} ${esc(p.name)}</span>
+                <span style="display:flex;align-items:center;gap:8px;">
+                  <input class="qb-input" id="qb-edit-score" type="number" value="${p.score}"
+                    style="margin:0;width:90px;text-align:center;padding:6px 8px;" />
+                  <button class="qb-btn qb-btn-gold qb-btn-small" data-action="save-edit-score">Save</button>
+                  <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="cancel-edit-score">Cancel</button>
+                </span>
+              </div>
             ` : `
               <div class="qb-player-admin-row">
                 <span>${p.avatar} ${esc(p.name)}</span>
                 <span style="display:flex;align-items:center;gap:8px;">
                   <button class="qb-score-adj" data-action="edit-player" data-id="${p.id}" title="Edit name and picture">&#9998;</button>
                   <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
-                  <span class="pts" style="color:var(--gold);min-width:48px;text-align:center;">${p.score} pts</span>
+                  <button class="qb-score-adj" data-action="edit-score" data-id="${p.id}" title="Type a new score"
+                    style="width:auto;min-width:56px;color:var(--gold);font-weight:800;">${p.score} pts</button>
                   <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="1" title="Add a point">+</button>
                   <button class="qb-remove-x" data-action="remove-player" data-id="${p.id}" title="Remove this player">&times;</button>
                 </span>
@@ -4037,13 +4185,18 @@
     if(!adminPoll){
       // no bucket means the "Start hosting" screen: nothing to poll, and a
       // re-render there would wipe whatever the host is typing every second
-      adminPoll = setInterval(() => { if(view === 'admin' && bucket && !formOpen && !editingPlayerId && !editingTitle) renderAdmin(); }, 1200);
+      adminPoll = setInterval(() => { if(view === 'admin' && bucket && !formOpen && !editingPlayerId && !editingScoreId && !editingTitle) renderAdmin(); }, 1200);
       adminTick = setInterval(() => {
         if(view !== 'admin') return;
         const el = document.getElementById('qb-admin-countdown');
         if(el && adminBuzzTimer){
           const remain = Math.ceil((adminBuzzTimer.endsAt - Date.now()) / 1000);
           el.textContent = remain > 0 ? remain + 's to answer' : "time's up — your call";
+        }
+        // 3-2-1 done: open the question for real, exactly once
+        if(adminCountdown && !adminCountdown.fired && Date.now() >= adminCountdown.endsAt){
+          adminCountdown.fired = true;
+          startCountedQuestion(adminCountdown.roundId);
         }
         // question round: when this tab's clock runs out, score it exactly once
         if(adminQTimer && !adminQTimer.fired && Date.now() >= adminQTimer.endsAt){
@@ -4153,6 +4306,12 @@
           savePlayerEdit();
         } else if(action === 'cancel-edit-player'){
           closePlayerEditor();
+        } else if(action === 'edit-score'){
+          openScoreEditor(el.getAttribute('data-id'));
+        } else if(action === 'save-edit-score'){
+          saveScoreEdit();
+        } else if(action === 'cancel-edit-score'){
+          closeScoreEditor();
         } else if(action === 'edit-title'){
           editingTitle = true;
           renderAdmin();
@@ -4208,6 +4367,8 @@
           // sensible time prefill for the chosen type (typing and sliding both
           // need longer than tapping a colour); still editable
           formQSeconds = (formType === 'text' || formType === 'slider') ? TEXT_SECONDS : QUESTION_SECONDS;
+          // sliders are the hardest to nail, so they're worth more by default
+          formQPoints = formType === 'slider' ? SLIDER_POINTS : DEFAULT_POINTS;
           renderAdmin();
         } else if(action === 'add-stage'){
           readFormFromDOM();
