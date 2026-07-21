@@ -283,6 +283,44 @@
   }
   .qb-banner.correct{background:var(--gold);color:#1b1f2e;}
   .qb-banner.wrong{background:var(--buzz);color:#fff;}
+  /* bomb: solid flame gradient, flashing hot — was transparent (no bg rule) and unreadable */
+  .qb-banner.bomb{
+    background:linear-gradient(160deg,#ff2d1a 0%,#ff7a1a 45%,#ffc61a 100%);
+    color:#fff;text-shadow:0 3px 0 #7a1200,0 6px 22px rgba(0,0,0,0.55);
+    border:4px solid #ffe28a;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 2.8s both, qb-flame-flash 0.22s linear infinite alternate;
+  }
+  @keyframes qb-flame-flash{
+    from{filter:brightness(1) saturate(1.1);box-shadow:0 0 60px 18px rgba(255,90,20,0.55);}
+    to{filter:brightness(1.35) saturate(1.5) hue-rotate(-14deg);box-shadow:0 0 110px 42px rgba(255,170,30,0.8);}
+  }
+  /* tactical nuke: alarm-red flash, harsher and faster than the bomb */
+  .qb-banner.nuke{
+    background:linear-gradient(160deg,#8f0000 0%,#e00000 55%,#ff5400 100%);
+    color:#fff;text-shadow:0 3px 0 #4d0000,0 6px 26px rgba(0,0,0,0.7);
+    border:4px dashed #ffd21f;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 4.3s both, qb-nuke-flash 0.16s steps(2,end) infinite;
+  }
+  @keyframes qb-nuke-flash{
+    from{filter:brightness(1);box-shadow:0 0 80px 24px rgba(255,40,0,0.7);}
+    to{filter:brightness(1.6) saturate(1.4);box-shadow:0 0 140px 60px rgba(255,210,30,0.85);}
+  }
+  /* oil slick: glossy black card for the projector's "X OILED Y" moment */
+  .qb-banner.oil{
+    background:linear-gradient(170deg,#20242e 0%,#05060a 70%);
+    color:#fff;text-shadow:0 2px 12px #000;
+    border:4px solid #3a4152;
+    box-shadow:0 20px 80px rgba(0,0,0,0.8), inset 0 -14px 40px rgba(120,140,180,0.18);
+  }
+  /* the projector-wide flashing strip while a nuke is armed and inbound */
+  .qb-nuke-alert{
+    position:fixed;left:0;right:0;top:0;z-index:60;pointer-events:none;
+    font-family:'Archivo Black',sans-serif;font-size:34px;text-align:center;
+    padding:16px 10px;color:#fff;letter-spacing:2px;
+    background:#c40000;text-shadow:0 2px 8px #000;
+    animation:qb-alert-blink 0.5s steps(2,end) infinite;
+  }
+  @keyframes qb-alert-blink{from{background:#c40000;opacity:1;}to{background:#5a0000;opacity:0.82;}}
   @keyframes qb-explode{
     0%{transform:scale(0.2) rotate(-6deg);opacity:0;}
     60%{transform:scale(1.12) rotate(2deg);opacity:1;}
@@ -514,6 +552,13 @@
      display poll rebuilds this DOM, and a restarting entrance animation sat
      permanently mid-fade — the explosion moment comes from showBanner instead */
   .qb-bomb-line{font-family:'Archivo Black',sans-serif;font-size:24px;color:#ff6b6b;margin:10px auto;text-shadow:0 2px 10px rgba(0,0,0,0.6);}
+  /* the nuke's aftermath box on the reveal: alarm-striped border, every hit listed */
+  .qb-nuke-block{
+    border:4px dashed #ffd21f;border-radius:18px;padding:16px 22px;margin:14px auto;max-width:900px;
+    background:linear-gradient(160deg,rgba(143,0,0,0.85),rgba(224,60,0,0.75));
+    box-shadow:0 0 60px rgba(255,60,0,0.45);
+  }
+  .qb-nuke-block .maths{display:block;font-size:17px;color:#ffe28a;margin-top:8px;font-family:'Archivo Black',sans-serif;}
   .qb-bomb-line .maths{display:block;font-family:'Nunito',sans-serif;font-size:16px;color:#dfe3ec;margin-top:4px;}
   .qb-question-text{font-family:'Archivo Black',sans-serif;font-size:34px;margin-bottom:18px;}
   /* white backing so transparent PNGs (logos) stay visible on the dark stage */
@@ -905,7 +950,7 @@
 
   // ---------- powerups ----------
   // Players carry up to 3 powerups in a bank, chosen at sign-up, and earn a new
-  // pick every 50 points climbed. Question rounds only (MC / typed / slider).
+  // pick every PU_EVERY points climbed. Question rounds only (MC / typed / slider).
   // One play per player per question; a play is an own-key write under the
   // question's puEpoch, so it's race-free like buzzes/answers/bets, and the
   // host tab resolves everything at scoring time (single writer).
@@ -919,11 +964,20 @@
     double: { icon:'🎲', name:'Double or Nothing', target:'self',
               blurb:'Whatever you win on this question is doubled. Score nothing and the powerup burned for nothing.' },
     oil:    { icon:'🛢️', name:'Oil Slick', target:'player',
-              blurb:'Rains oil down a rival’s phone for 5 seconds — screen blocked, panic guaranteed. Time it cruelly.' }
+              blurb:'Rains oil down a rival’s phone for 5 seconds — screen blocked, panic guaranteed. Time it cruelly.' },
+    nuke:   { icon:'☢️', name:'Tactical Nuke', target:'all', maxHold:1,
+              blurb:'−20 points to EVERY other player and −10 to yourself — and nobody wins anything on this question. Only detonates if YOU answer correctly. One nuke in your bank at a time.' }
   };
   const PU_MAX_SLOTS = 3;
-  const PU_EVERY = 50;        // a fresh powerup pick every 50 points climbed
+  const PU_EVERY = 25;        // a fresh powerup pick every 25 points climbed
   const BOMB_DAMAGE = 10;
+  const NUKE_DAMAGE = 20;     // what every other player loses when a nuke detonates
+  const NUKE_SELF_COST = 10;  // what the nuker pays for pressing the button
+  // some powerups (the nuke) cap how many of them one bank can hold
+  function puCanHold(held, type){
+    const max = POWERUPS[type] && POWERUPS[type].maxHold;
+    return !max || held.filter(t => t === type).length < max;
+  }
   function puList(p){ return (p && Array.isArray(p.pu)) ? p.pu.filter(t => POWERUPS[t]) : []; }
   // banked-but-unspent picks: highest 50s rung this player has ever reached,
   // minus the picks they've already taken. Claims wait until a slot is free.
@@ -1094,6 +1148,14 @@
     arm(){ tone(660, 0, 0.1, 'triangle', 0.3); tone(990, 0.1, 0.18, 'triangle', 0.3, 1320); },
     splat(){ [300, 220, 160, 120].forEach((f, i) => tone(f, i * 0.09, 0.13, 'sawtooth', 0.4, f * 0.55)); },
     boom(){ tone(120, 0, 0.8, 'sawtooth', 0.5, 35); tone(60, 0, 0.9, 'square', 0.45, 28); tone(2400, 0, 0.12, 'square', 0.18, 300); },
+    // air-raid siren for the tactical nuke: three rising-falling sweeps over a rumble
+    siren(){
+      for(let i = 0; i < 3; i++){
+        tone(480, i * 1.0, 0.5, 'sawtooth', 0.4, 1150);
+        tone(1150, i * 1.0 + 0.5, 0.5, 'sawtooth', 0.4, 480);
+      }
+      tone(55, 0, 3.0, 'square', 0.18, 45);
+    },
     // the projector countdown's once-a-second ticks: soft blip, then urgent,
     // then critical — played by the display (the room's speaker), never phones,
     // so every ear hears one clock and per-phone drift doesn't matter
@@ -1359,7 +1421,7 @@
         </div>
         <div class="qb-pu-menu">
           ${Object.entries(POWERUPS).map(([t, d]) => `
-            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS ? 'disabled' : ''}>
+            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS || !puCanHold(joinDraftPu, t) ? 'disabled' : ''}>
               <span class="ic">${d.icon}</span>
               <span class="tx"><strong>${d.name}</strong><br><span class="qb-small">${d.blurb}</span></span>
               <span class="add">+</span>
@@ -1579,7 +1641,8 @@
         if(state.qMode){
           const mine = (state.qResults || []).find(r => r.id === myPlayerId);
           const bombedMe = (state.puEvents || []).some(e => e.type === 'bomb' && e.fired && e.target === myPlayerId);
-          if(bombedMe) playSound('boom');   // getting bombed is personal
+          const nukedMe = (state.puEvents || []).some(e => e.type === 'nuke' && e.fired && e.from !== myPlayerId);
+          if(nukedMe || bombedMe) playSound('boom');   // getting hit is personal
           else if(mine && (mine.correct || (mine.auto && mine.won))) playSound('correct');
           else if(mine && mine.answered) playSound('wrong');
         }
@@ -1597,7 +1660,10 @@
         : state.textMode ? (state.textAnswer || '')
         : ((state.qAnswers || [])[state.qCorrect] || '');
       statusLine = `The answer was ${esc(shown)}`;
-      if(mine && mine.correct){
+      const roomNuked = (state.puEvents || []).some(e => e.type === 'nuke' && e.fired);
+      if(mine && mine.correct && roomNuked){
+        statusSub = `✅ Right answer — ☢️ but the nuke vaporised everyone's winnings!`;
+      } else if(mine && mine.correct){
         const why = mine.kitty ? ` — and you scooped the ${mine.kitty}-point kitty!${state.betMatched ? ' Lone bet, house-doubled! 🎰' : ''} 💰`
           : mine.bullseye ? ' — bullseye! 🎯'
           : mine.fastest ? ' — fastest answer, bonus included 🥇' : '';
@@ -1621,6 +1687,13 @@
           statusSub += ` · 💣 ${esc(e.fromName)} bombed you: −${e.damage}${e.targetWon ? ` (+${e.targetWon} won − ${e.damage} = ${e.targetNet >= 0 ? '+' : ''}${e.targetNet} overall)` : ''}`;
         }
         if(e.type === 'oil' && e.from === myPlayerId) statusSub += ` · 🛢️ You oiled ${esc(e.targetName)}!`;
+        if(e.type === 'nuke' && e.from === myPlayerId){
+          statusSub += e.fired ? ` · ☢️ YOUR NUKE DETONATED! −${e.damage} to everyone else, −${e.selfCost} to you`
+            : ' · ☢️💨 Your nuke failed to launch — you have to get the question right!';
+        }
+        if(e.type === 'nuke' && e.fired && e.from !== myPlayerId){
+          statusSub += ` · ☢️ ${esc(e.fromName)} nuked the room: −${e.damage} points to you`;
+        }
         if(e.type === 'auto' && e.from === myPlayerId && !e.fired) statusSub += ' · ✅ Auto-Correct wasted — you were right anyway!';
         if(e.type === 'double' && e.from === myPlayerId && !e.fired) statusSub += ' · 🎲 Double or Nothing came up NOTHING — powerup burned!';
       });
@@ -1835,7 +1908,7 @@
           trayHTML += `
             <div class="qb-pu-target" style="border:1px solid var(--gold);border-radius:14px;padding:12px;">
               <div class="qb-pu-note" style="color:var(--gold);">🎁 <strong>You've earned a new powerup!</strong> Pick one:</div>
-              ${Object.entries(POWERUPS).map(([t, d]) => `<button data-action="claim-pu" data-type="${t}">${d.icon} ${d.name}</button>`).join('')}
+              ${Object.entries(POWERUPS).map(([t, d]) => `<button data-action="claim-pu" data-type="${t}" ${puCanHold(myPu, t) ? '' : 'disabled title="Only one at a time"'}>${d.icon} ${d.name}</button>`).join('')}
             </div>
           `;
         }
@@ -1990,7 +2063,7 @@
     if(!myPlayerId || !POWERUPS[type]) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
-    if(!me || puPending(me) <= 0 || puList(me).length >= PU_MAX_SLOTS) return;
+    if(!me || puPending(me) <= 0 || puList(me).length >= PU_MAX_SLOTS || !puCanHold(puList(me), type)) return;
     playSound('join');
     try{
       await fetch(puPickUrl(myPlayerId), { method:'PUT', body: JSON.stringify({ id: myPlayerId, type, ts: { '.sv':'timestamp' } }) });
@@ -2125,6 +2198,22 @@
   // renders await several fetches, so a slow one can finish after a newer one
   // started; each render takes a ticket and abandons itself if it went stale
   let displaySeq = 0;
+  let displayPuSeen = {};   // powerup plays this projector has already announced, epoch:player
+
+  // the nuke's flashing INBOUND strip: imperative on/off against <body>, like
+  // the banners, so the poll repaint can't restart its blink animation
+  function ensureNukeAlert(on){
+    const cur = document.getElementById('qb-nuke-alert');
+    if(on && !cur){
+      const el = document.createElement('div');
+      el.id = 'qb-nuke-alert';
+      el.className = 'qb-nuke-alert';
+      el.innerHTML = '🚨 ☢️ TACTICAL NUKE INBOUND ☢️ 🚨';
+      document.body.appendChild(el);
+    } else if(!on && cur){
+      cur.remove();
+    }
+  }
 
   // big self-destructing result banner, appended to <body> so the 900ms
   // display re-render can't wipe it mid-animation
@@ -2132,7 +2221,11 @@
     document.querySelectorAll('.qb-banner-overlay').forEach(el => el.remove());
     const overlay = document.createElement('div');
     overlay.className = 'qb-banner-overlay';
-    const emojis = kind === 'correct' ? ['🎉','⭐','✨','🎊'] : kind === 'bomb' ? ['💣','💥','🔥','💢'] : ['💥','❌','💢','😬'];
+    const emojis = kind === 'correct' ? ['🎉','⭐','✨','🎊']
+      : kind === 'bomb' ? ['💣','💥','🔥','💢']
+      : kind === 'nuke' ? ['☢️','💥','🔥','🚨']
+      : kind === 'oil' ? ['🛢️','⚫','💧','🌧️']
+      : ['💥','❌','💢','😬'];
     let particles = '';
     for(let i = 0; i < 16; i++){
       const ang = (Math.PI * 2 * i) / 16;
@@ -2141,7 +2234,8 @@
     }
     overlay.innerHTML = `${particles}<div class="qb-banner ${kind}">${html}</div>`;
     document.body.appendChild(overlay);
-    setTimeout(() => overlay.remove(), 3400);
+    // the nuke card's exit animation is delayed longer, so it lives longer
+    setTimeout(() => overlay.remove(), kind === 'nuke' ? 5200 : 3400);
   }
   // small gold instruction strip used on the projector to explain what's happening
   function tipHTML(text){
@@ -2151,8 +2245,18 @@
   // there are no arguments about the damage) and oil slicks. Autos, doubles and
   // 50/50s show as badges on the result rows instead.
   function puEventLinesHTML(s){
-    const evs = (s.puEvents || []).filter(e => e.type === 'bomb' || e.type === 'oil');
+    const evs = (s.puEvents || []).filter(e => e.type === 'bomb' || e.type === 'oil' || e.type === 'nuke');
     return evs.map(e => {
+      if(e.type === 'nuke'){
+        return e.fired
+          ? `<div class="qb-nuke-block">
+               <div class="qb-bomb-line" style="font-size:30px;">☢️💥 ${esc(e.fromName)} DROPPED A TACTICAL NUKE!</div>
+               <div class="qb-bomb-line" style="font-size:20px;">${(e.hits || []).map(h => `${h.avatar || ''} ${esc(h.name)} &minus;${e.damage}`).join(' &middot; ')}</div>
+               <div class="qb-bomb-line" style="font-size:20px;color:#ffb347;">${esc(e.fromName)} pays &minus;${e.selfCost} for pressing the button</div>
+               <span class="maths">…and NOBODY wins any points on this question. Scorched earth.</span>
+             </div>`
+          : `<div class="qb-bomb-line" style="color:var(--muted);">☢️💨 ${esc(e.fromName)}'s nuke failed to launch &mdash; wrong answer, warhead wasted!</div>`;
+      }
       if(e.type === 'bomb'){
         return e.fired
           ? `<div class="qb-bomb-line">💣💥 ${esc(e.fromName)} BOMBED ${esc(e.targetName)}! &minus;${e.damage} points
@@ -2322,7 +2426,35 @@
     const bettingAntes = betting ? await fetchAntes(state.anteEpoch) : {};
     const answering = state.qMode && state.status === 'live' && !!state.answerEpoch; // false while a wager's betting phase hides the question
     const qAnswersLive = answering ? await fetchAnswers(state.answerEpoch) : {};
+    // powerup plays land mid-question (from the 3-2-1 onwards). The projector
+    // announces the loud ones the moment they happen: oil slicks get their
+    // dripping banner, an armed nuke trips the air-raid siren. Bombs stay
+    // secret until the reveal — that's their drama.
+    const puWatch = state.qMode && state.status === 'live' && !!state.puEpoch && !state.reviewing;
+    const livePowers = puWatch ? await fetchPowers(state.puEpoch) : {};
     if(seq !== displaySeq) return;
+
+    let nukeArmed = false;
+    Object.values(livePowers).forEach(pw => {
+      if(!pw || !pw.id) return;
+      const key = state.puEpoch + ':' + pw.id;
+      if(pw.type === 'oil' && pw.target){
+        if(!displayPuSeen[key]){
+          displayPuSeen[key] = 1;
+          playSound('splat');
+          showBanner('oil', `🛢️ ${esc(pw.name || 'Someone')} OILED ${esc(pw.targetName || 'someone')}!<div style="font-size:26px;margin-top:10px;">5 seconds of drippy chaos on their phone</div>`);
+        }
+      } else if(pw.type === 'nuke'){
+        nukeArmed = true;
+        if(!displayPuSeen[key]){
+          displayPuSeen[key] = 1;
+          playSound('siren');
+        }
+      }
+    });
+    // the flashing INBOUND strip lives outside the polled DOM (like the
+    // banners), so the repaint can't blink it; it drops at the reveal
+    ensureNukeAlert(nukeArmed);
 
     // the 3-2-1 opening a question: start this display's own clock once per round
     const counting = !!state.countdown && state.status === 'live' && !isLobby && !showStandings;
@@ -2360,9 +2492,14 @@
       const prev = prevDisplaySnap;
       if(buzz && buzz.id !== prev.buzzedId) playBuzzFor(buzz);
       if(state.status === 'reveal' && prev.status !== 'reveal'){
-        // a detonated bomb steals the show; otherwise the usual reveal noises
+        // a detonated nuke outranks everything, then bombs, then normal noises
+        const firedNuke = (state.puEvents || []).find(e => e.type === 'nuke' && e.fired);
         const firedBomb = (state.puEvents || []).find(e => e.type === 'bomb' && e.fired);
-        if(firedBomb){
+        if(firedNuke){
+          playSound('siren');
+          setTimeout(() => playSound('boom'), 900);
+          showBanner('nuke', `☢️💥 ${esc(firedNuke.fromName)} NUKED THE ROOM!<div style="font-size:26px;margin-top:10px;">&minus;${firedNuke.damage} to everyone else &middot; &minus;${firedNuke.selfCost} to ${esc(firedNuke.fromName)} &middot; nobody scores!</div>`);
+        } else if(firedBomb){
           playSound('boom');
           showBanner('bomb', `💣💥 ${esc(firedBomb.fromName)} BOMBED ${esc(firedBomb.targetName)}!<div style="font-size:26px;margin-top:10px;">&minus;${firedBomb.damage} points</div>`);
         } else {
@@ -2526,12 +2663,15 @@
                 : Number.isInteger(r.choice) ? `<span class="qb-pick-chip" style="background:${ANSWER_COLORS[r.choice] || '#666'};"><span class="shape">${ANSWER_SHAPES[r.choice] || ''}</span>${esc((state.qAnswers || [])[r.choice] || '')}</span>` : ''}
               ${r.correct || r.won > 0 ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.bullseye ? ' bullseye!' : r.fastest ? ' fastest!' : ''}${r.double ? ' 🎲 DOUBLED!' : ''}${r.auto && !r.correct ? ' ✅ auto-correct!' : ''}</span>` : ''}
               ${r.bombDamage ? `<span class="delta" style="color:#ff6b6b;">💣 &minus;${r.bombDamage}</span>` : ''}
+              ${r.nukeDelta ? `<span class="delta" style="color:#ffd21f;">☢️ ${r.nukeDelta}</span>` : ''}
               <span class="t">${state.sliderMode ? (Number.isFinite(r.dist) ? (r.dist === 0 ? 'spot on' : fmtNum(r.dist, groupNums(state.sliderMax)) + ' off') : '') : (r.ms ? (r.ms / 1000).toFixed(2) + 's' : '')}</span>
             </div>
           `).join('')}
           ${noAnswer.map(r => `
             <div class="qb-qresult-row wrong" style="opacity:0.5;">
-              <span>💤</span><span>${r.avatar || ''} ${esc(r.name || '')}</span><span class="t">no answer</span>
+              <span>💤</span><span>${r.avatar || ''} ${esc(r.name || '')}</span>
+              ${r.nukeDelta ? `<span class="delta" style="color:#ffd21f;">☢️ ${r.nukeDelta}</span>` : ''}
+              <span class="t">no answer</span>
             </div>
           `).join('')}
         </div>
@@ -2558,7 +2698,7 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival or oil up their screen. One per question, and every <strong>50 points</strong> climbed earns a fresh pick!</li>
+            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival, oil up their screen &mdash; or drop the ☢️ tactical nuke on the whole room. One per question, and every <strong>${PU_EVERY} points</strong> climbed earns a fresh pick!</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
             <li>🎚️ Others are <strong>slide-to-guess</strong> &mdash; drag to your number, closest guess wins, spot on gets a bonus.</li>
           </ol>
@@ -3449,7 +3589,8 @@
     let changed = false;
     for(const [pid, pick] of Object.entries(picks)){
       const p = players.find(x => x.id === pid);
-      if(p && pick && POWERUPS[pick.type] && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS){
+      if(p && pick && POWERUPS[pick.type] && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS
+          && puCanHold(puList(p), pick.type)){   // e.g. a second nuke — reject, keep the pick banked
         p.pu = puList(p).concat(pick.type);
         p.puClaimed = (p.puClaimed || 0) + 1;
         changed = true;
@@ -3559,7 +3700,11 @@
     s.puEvents = [];
     if(s.puEpoch){
       const plays = await fetchPowers(s.puEpoch);
-      Object.values(plays).forEach(pw => {
+      // nukes resolve LAST: they zero out everything the other powerups may
+      // have granted, so ordering must not depend on Firebase's key order
+      const ordered = Object.values(plays).sort((a, b) =>
+        ((a && a.type === 'nuke') ? 1 : 0) - ((b && b.type === 'nuke') ? 1 : 0));
+      ordered.forEach(pw => {
         if(!pw || !pw.id || !POWERUPS[pw.type]) return;
         const p = players.find(pl => pl.id === pw.id);
         if(!p) return;
@@ -3601,6 +3746,41 @@
             ev.targetWon = (tr && tr.won) || 0;          // spelled out at the reveal
             ev.targetNet = ev.targetWon - BOMB_DAMAGE;   // so there are no arguments
             if(tr){ tr.bombedBy = pw.name || 'Someone'; tr.bombDamage = BOMB_DAMAGE; }
+          }
+        } else if(pw.type === 'nuke'){
+          // −20 to everyone else, −10 to the nuker, and NOBODY keeps what they
+          // won on this question — but only if the nuker answered correctly
+          ev.fired = !!(r && r.correct);
+          if(ev.fired){
+            ev.damage = NUKE_DAMAGE;
+            ev.selfCost = NUKE_SELF_COST;
+            // claw back every winning already paid out (incl. auto/double grants)
+            results.forEach(x => {
+              if(x.won > 0){
+                const xp = players.find(pl => pl.id === x.id);
+                if(xp) xp.score = (xp.score || 0) - x.won;
+              }
+              x.won = 0;
+              x.fastest = false;
+            });
+            // any bomb that already spelled out its victim's maths now lies —
+            // the victim's winnings just went to zero, so restate it
+            s.puEvents.forEach(be => {
+              if(be.type === 'bomb' && be.fired){ be.targetWon = 0; be.targetNet = -be.damage; }
+            });
+            ev.hits = [];
+            players.forEach(pl => {
+              if(pl.id === pw.id){
+                pl.score = (pl.score || 0) - NUKE_SELF_COST;
+              } else {
+                pl.score = (pl.score || 0) - NUKE_DAMAGE;
+                ev.hits.push({ id: pl.id, name: pl.name, avatar: pl.avatar });
+                const xr = results.find(x => x.id === pl.id);
+                if(xr) xr.nukeDelta = -NUKE_DAMAGE;
+              }
+            });
+            const nr = results.find(x => x.id === pw.id);
+            if(nr) nr.nukeDelta = -NUKE_SELF_COST;
           }
         } else {
           ev.fired = true;   // oil / fifty: flavour only
@@ -4678,8 +4858,9 @@
           root.querySelectorAll('[data-action="pick-buzzer"]').forEach(b => b.classList.toggle('selected', b === el));
           playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer (tap also unlocks audio)
         } else if(action === 'join-add-pu'){
-          if(joinDraftPu.length < PU_MAX_SLOTS){
-            joinDraftPu.push(el.getAttribute('data-type'));
+          const t = el.getAttribute('data-type');
+          if(joinDraftPu.length < PU_MAX_SLOTS && puCanHold(joinDraftPu, t)){
+            joinDraftPu.push(t);
             playSound('join');
             renderJoin(true);   // cached players, so the repaint doesn't steal focus
           }
