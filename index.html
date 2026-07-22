@@ -126,14 +126,32 @@
 
   /* Scoreboard */
   .qb-scoreboard{width:100%;}
+  /* One rigid grid so every badge lines up regardless of name length: rank |
+     avatar | name | powerups | score. Names truncate rather than wrap, and the
+     powerup strip and score keep fixed columns, so nothing shuffles about. */
   .qb-score-row{
-    display:flex;align-items:center;justify-content:space-between;
+    display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto;
+    align-items:center;gap:10px;
     background:var(--panel-light);
     padding:10px 14px;border-radius:10px;margin-bottom:8px;
   }
-  .qb-score-row .name{display:flex;align-items:center;gap:10px;font-weight:600;}
-  .qb-score-row .pts{font-family:'Archivo Black',sans-serif;color:var(--gold);}
-  .qb-rank{color:var(--text-dim);width:22px;display:inline-block;}
+  .qb-score-row .name{
+    font-weight:600;min-width:0;text-align:left;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }
+  .qb-score-row .av{font-size:1.15em;line-height:1;}
+  .qb-score-row .pts{
+    font-family:'Archivo Black',sans-serif;color:var(--gold);
+    text-align:right;font-variant-numeric:tabular-nums;min-width:2.6em;
+  }
+  .qb-rank{color:var(--text-dim);min-width:1.5em;display:inline-block;}
+  /* an infected player's whole badge goes green — a 🦠 in the icon strip read
+     as "they're holding a virus powerup", which is the opposite of the truth */
+  .qb-score-row.infected{
+    background:linear-gradient(160deg,#1d4d2a,#123019);
+    box-shadow:inset 0 0 0 2px #4bd06a, 0 0 18px rgba(75,208,106,0.35);
+  }
+  .qb-score-row.infected .name{color:#c8f7d2;}
 
   /* Display (projector) mode */
   .qb-display{width:100%;max-width:1100px;text-align:center;}
@@ -180,8 +198,14 @@
   .qb-reveal-box .song{font-family:'Archivo Black',sans-serif;font-size:42px;color:var(--gold);margin:4px 0;}
   .qb-reveal-box .artist{font-size:20px;color:var(--text-dim);margin-bottom:14px;}
   .qb-reveal-box .winner-line{font-size:22px;font-weight:700;margin-top:14px;}
-  .qb-display-scoreboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;}
-  .qb-display-scoreboard .qb-score-row{font-size:20px;padding:16px 20px;}
+  /* wider cards so a 10-char name, the icon strip and the score all fit on one
+     line at across-the-room size */
+  .qb-display-scoreboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px;}
+  .qb-display-scoreboard .qb-score-row{font-size:23px;padding:16px 20px;gap:10px;}
+  .qb-display-scoreboard .qb-score-row .pts{font-size:28px;min-width:2.2em;}
+  .qb-display-scoreboard .qb-rank{font-size:19px;}
+  /* the icon strip must never squeeze the name out — names win the space */
+  .qb-display-scoreboard .qb-pu-held{font-size:0.6em;min-width:0;}
   .qb-lobby{display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start;justify-content:center;margin-bottom:30px;}
   .qb-qr-box{
     background:#fff;border-radius:20px;padding:20px;
@@ -256,9 +280,22 @@
   .qb-buzzed-banner .who{font-family:'Archivo Black',sans-serif;font-size:26px;margin:6px 0 14px;}
   .qb-row-2{display:flex;gap:10px;}
   .qb-row-2 .qb-btn{flex:1;}
+  /* same rigid grid as the projector badges: avatar | name | powerups | tags |
+     controls, so every row lines up whatever the name length */
   .qb-player-admin-row{
-    display:flex;align-items:center;justify-content:space-between;
+    display:flex;flex-wrap:wrap;align-items:center;gap:8px;
     background:var(--panel-light);padding:10px 12px;border-radius:10px;margin-bottom:8px;
+  }
+  /* the controls drop to their own line when the column is narrow, so the name
+     is never squeezed to an initial — the admin card is a skinny column */
+  .qb-player-admin-row .ctl{display:flex;align-items:center;gap:8px;margin-left:auto;}
+  .qb-player-admin-row.plain{display:flex;justify-content:space-between;}
+  .qb-player-admin-row .av{font-size:1.2em;line-height:1;}
+  .qb-player-admin-row .who{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .qb-player-admin-row .tags{white-space:nowrap;}
+  .qb-player-admin-row.infected{
+    background:linear-gradient(160deg,#1d4d2a,#123019);
+    box-shadow:inset 0 0 0 2px #4bd06a;
   }
   .qb-remove-x{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;}
   .qb-remove-x:hover{color:var(--buzz);}
@@ -435,12 +472,21 @@
   /* standings screen on the projector */
   .qb-standings{max-width:640px;margin:0 auto 34px;}
   .qb-standing-row{
-    display:flex;align-items:center;gap:18px;
+    display:grid;grid-template-columns:auto auto minmax(0,1fr) auto auto auto;
+    align-items:center;gap:16px;
     background:var(--panel);border-radius:14px;padding:16px 24px;margin-bottom:10px;
     font-size:26px;font-weight:700;
   }
   .qb-standing-row.leader{background:var(--panel-light);border:2px solid var(--gold);}
   .qb-standing-row .rank{width:52px;text-align:center;}
+  .qb-standing-row .av{font-size:1.1em;line-height:1;}
+  .qb-standing-row .who{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;}
+  .qb-standing-row .tags{white-space:nowrap;}
+  .qb-standing-row .pts{font-variant-numeric:tabular-nums;min-width:2.4em;text-align:right;}
+  .qb-standing-row.infected{
+    background:linear-gradient(160deg,#1d4d2a,#123019);
+    box-shadow:inset 0 0 0 2px #4bd06a, 0 0 22px rgba(75,208,106,0.3);
+  }
   .qb-standing-row .who{flex:1;text-align:left;}
   .qb-standing-row .pts{font-family:'Archivo Black',sans-serif;color:var(--gold);font-size:30px;}
 
@@ -600,7 +646,9 @@
   /* 50/50: the two snipped answers wither away (phone) */
   .qb-answer-sq.cut{opacity:0.12;filter:grayscale(1);transform:scale(0.94);pointer-events:none;transition:opacity 0.6s,transform 0.6s;}
   /* held powerups shown beside names on projector boards */
-  .qb-pu-held{font-size:0.75em;letter-spacing:2px;margin-left:6px;}
+  /* fixed column in the score-row grid, so icon strips of different lengths
+     don't push names and scores out of alignment between badges */
+  .qb-pu-held{font-size:0.75em;letter-spacing:0;white-space:nowrap;text-align:right;min-width:2em;}
   /* oil slick: full-phone overlay, blocks every tap while it drips */
   .qb-oil-overlay{position:fixed;inset:0;z-index:2000;overflow:hidden;background:rgba(0,0,0,0.25);touch-action:none;}
   .qb-oil-drip{position:absolute;top:-18vh;width:26px;border-radius:0 0 14px 14px;background:linear-gradient(#05060a,#101318);opacity:0.94;animation:qb-oil-fall linear forwards;}
@@ -878,12 +926,44 @@
     }catch(e){ console.error(e); return false; }
   }
 
+  // ---------- qb-players: keyed by player id, never a whole-document write ----------
+  // It used to be a plain array, so signing up meant a phone read the WHOLE
+  // roster, appended itself and wrote it all back. If the host scored a question
+  // inside that window, the phone's stale copy landed on top and undid it —
+  // spent powerups and nukes came back, consumed ones vanished, scores reverted.
+  // A kicked player rejoining mid-game hit this every time. Now the node is an
+  // object keyed by id: a phone PUTs only its own key, and host writes are PATCH
+  // merges, so neither can erase the other. Old array-shaped games are re-keyed
+  // on first read.
+  function playerUrl(id){
+    return FIREBASE_DB_URL.replace(/\/+$/, '') + '/games/' + encodeURIComponent(bucket)
+      + '/qb-players' + (id ? '/' + encodeURIComponent(id) : '') + '.json';
+  }
+  function keyById(list){
+    const keyed = {};
+    (list || []).forEach(p => { if(p && p.id) keyed[p.id] = p; });
+    return keyed;
+  }
   async function getPlayers(){
     const text = await kvGet('qb-players');
-    try{ return text ? JSON.parse(text) : []; }catch(e){ return []; }
+    let raw = null;
+    try{ raw = text ? JSON.parse(text) : null; }catch(e){ return []; }
+    if(!raw) return [];
+    const list = (Array.isArray(raw) ? raw : Object.values(raw)).filter(p => p && p.id);
+    // one-time migration off the old array shape; after this every write is per-player
+    if(Array.isArray(raw) && list.length){
+      try{ await fetch(playerUrl(), { method:'PUT', body: JSON.stringify(keyById(list)) }); }catch(e){}
+    }
+    return list;
   }
+  // Host-side write. PATCH merges player-by-player, so someone who joined during
+  // this read→change→write cycle isn't wiped by it. Removal is an explicit
+  // DELETE of that player's key (a merge can't express "gone") — see removePlayer.
   async function savePlayers(list){
-    await kvSet('qb-players', JSON.stringify(list));
+    const keyed = keyById(list);
+    if(!Object.keys(keyed).length) return;
+    if(!bucket || !backendConfigured()) return;
+    try{ await fetch(playerUrl(), { method:'PATCH', body: JSON.stringify(keyed) }); }catch(e){ console.error(e); }
   }
   // ---------- one host mutation of qb-players at a time ----------
   // qb-players is a single document, and the host tab changes it from several
@@ -894,8 +974,8 @@
   // back, so the phone was offered the same pick again next question — the
   // "everyone keeps getting bombs" bug. Serialising the WHOLE cycle fixes it:
   // read and write are one critical section, so the next caller always sees
-  // whatever the previous one just wrote. (Sign-up writes come from a phone, so
-  // they can't be covered here; they append and are unaffected by this bug.)
+  // whatever the previous one just wrote. (Phones are a separate tab and can't
+  // be covered by this queue — that's why their writes are own-key only.)
   let playersQueue = Promise.resolve();
   function withPlayers(mutate){
     const run = playersQueue.then(async () => {
@@ -1092,6 +1172,7 @@
   };
   // the powerups a player can actually choose (the nuke is issued, not picked)
   const PU_CHOOSABLE = Object.entries(POWERUPS).filter(([, d]) => !d.granted);
+  const NAME_MAX = 10;   // long names break the projector's score badges
   const PU_MAX_SLOTS = 3;
   const PU_EVERY = 25;        // a fresh powerup pick every 25 points climbed
   const BOMB_DAMAGE = 10;
@@ -1459,19 +1540,23 @@
   }
 
   // the powerups a player is holding, shown beside their name on every board
+  // Only what they're HOLDING — an infection is not a powerup they own, so it
+  // never goes in this strip (a 🦠 here read as "they've got a virus to play").
+  // Being infected turns the whole badge green instead; see .qb-score-row.infected.
   function puHeldHTML(p){
-    // an unspent nuke shows too, so the room can see who's still armed
     const icons = puList(p).map(t => POWERUPS[t].icon).concat(hasNuke(p) ? [POWERUPS.nuke.icon] : []);
-    // a standing infection rides alongside, so the room can see who's bleeding
-    const sick = p && p.virus ? `<span class="qb-pu-held" style="color:#7ee08a;" title="Infected">🦠</span>` : '';
-    return (icons.length ? `<span class="qb-pu-held">${icons.join('')}</span>` : '') + sick;
+    // always emitted, even when empty: it's a fixed column of the score-row grid
+    return `<span class="qb-pu-held">${icons.join('')}</span>`;
   }
   function scoreboardHTML(players, big){
     const sorted = sortedPlayers(players);
     if(sorted.length === 0) return `<p class="qb-small">No players have joined yet.</p>`;
     return `<div class="${big ? 'qb-display-scoreboard' : ''}">` + sorted.map((p,i)=>`
-      <div class="qb-score-row">
-        <span class="name"><span class="qb-rank">${i+1}.</span> ${p.avatar} ${esc(p.name)}${puHeldHTML(p)}</span>
+      <div class="qb-score-row ${p.virus ? 'infected' : ''}" ${p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
+        <span class="qb-rank">${i+1}.</span>
+        <span class="av">${p.avatar}</span>
+        <span class="name">${esc(p.name)}</span>
+        ${puHeldHTML(p)}
         <span class="pts">${p.score}</span>
       </div>
     `).join('') + `</div>`;
@@ -1553,7 +1638,7 @@
       <div style="margin-top:22px;">
         <label class="qb-label">Already joined, but on a new phone?</label>
         ${claimable.map(p => `
-          <div class="qb-player-admin-row">
+          <div class="qb-player-admin-row plain">
             <span>${p.avatar} ${esc(p.name)}</span>
             <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="claim-player" data-id="${p.id}">That's me</button>
           </div>
@@ -1567,7 +1652,7 @@
         <h2 class="qb-title" style="font-size:22px;margin-top:0;">Sign up</h2>
         ${welcomeBackHTML}
         <label class="qb-label">Your name</label>
-        <input class="qb-input" id="qb-name-input" maxlength="20" placeholder="e.g. Sam" value="${esc(joinDraftName)}" />
+        <input class="qb-input" id="qb-name-input" maxlength="${NAME_MAX}" placeholder="e.g. Sam" value="${esc(joinDraftName)}" />
         <label class="qb-label">Pick a picture</label>
         <div class="qb-avatar-grid">
           ${AVATARS.map(a => `<div class="qb-avatar ${a===joinDraftAvatar?'selected':''}" data-action="pick-avatar" data-avatar="${a}">${a}</div>`).join('')}
@@ -1611,20 +1696,26 @@
 
   async function submitJoin(){
     const nameEl = document.getElementById('qb-name-input');
-    const name = (nameEl ? nameEl.value : joinDraftName).trim();
+    // maxlength guards the keyboard; this guards a pasted or autofilled name,
+    // because long names wreck the projector's score badges
+    const name = (nameEl ? nameEl.value : joinDraftName).trim().slice(0, NAME_MAX);
     if(!name){ alert('Enter a name first.'); return; }
     if(!joinDraftAvatar){ alert('Pick a picture first.'); return; }
     if(joinDraftPu.length < PU_MAX_SLOTS){ alert(`Pick your ${PU_MAX_SLOTS} powerups first — doubles are allowed.`); return; }
     // default to a random buzzer if they never tapped one, so nobody is silent
     const sound = Number.isInteger(joinDraftSound) ? joinDraftSound : Math.floor(Math.random() * BUZZ_SOUNDS.length);
     const id = makeId('p');
-    const players = await getPlayers();
     // pu = the live bank; puChosen = the sign-up picks, kept so a game reset
-    // can refill everyone's slots to how they started the night
-    players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound,
-      pu: joinDraftPu.slice(0, PU_MAX_SLOTS), puChosen: joinDraftPu.slice(0, PU_MAX_SLOTS),
-      puOwed: 0, puFloor: 0, puLadder: PU_EVERY, nuke: true });
-    await savePlayers(players);
+    // can refill everyone's slots to how they started the night.
+    // Own-key write: never read the roster and never write anyone else's record,
+    // or a rejoin lands a stale copy on top of the host's scoring.
+    try{
+      await fetch(playerUrl(id), { method:'PUT', body: JSON.stringify({
+        id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound,
+        pu: joinDraftPu.slice(0, PU_MAX_SLOTS), puChosen: joinDraftPu.slice(0, PU_MAX_SLOTS),
+        puOwed: 0, puFloor: 0, puLadder: PU_EVERY, nuke: true
+      }) });
+    }catch(e){ console.error(e); }
     saveStoredIdentity(id, name, joinDraftAvatar);
     myPlayerId = id;
     myPlayerName = name;
@@ -2532,9 +2623,12 @@
     const tied = tiedLeaders(players);
     const tiedIds = tied.map(p => p.id);
     return `<div class="qb-standings">` + sorted.map((p, i) => `
-      <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''}">
+      <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''} ${p.virus ? 'infected' : ''}">
         <span class="rank">${tiedIds.includes(p.id) ? '🤝' : medals[i] || (i + 1) + '.'}</span>
-        <span class="who">${p.avatar} ${esc(p.name)}${puHeldHTML(p)} ${tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED FOR 1st</span>' : ''}</span>
+        <span class="av">${p.avatar}</span>
+        <span class="who">${esc(p.name)}</span>
+        <span class="tags">${tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED 1st</span>' : ''}</span>
+        ${puHeldHTML(p)}
         <span class="pts">${p.score}</span>
       </div>
     `).join('') + `</div>`
@@ -2551,8 +2645,26 @@
   // the rest of the question view (crucially the clue image) isn't rebuilt
   function answeredChipsHTML(list){
     return list.length
-      ? list.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} ✔</span>`).join('')
+      ? list.map(a => `<span class="qb-lobby-chip"><span class="av">${a.avatar || ''}</span> ${esc(a.name || '')} ${a.auto ? '✅' : '✔'}</span>`).join('')
       : 'Answers appear here as they come in&hellip;';
+  }
+  // Playing ✅ Auto-Correct IS answering: they've committed to the question and
+  // are never going to tap a colour, so they belong in the "answered" chips and
+  // must count towards everyone's-in — otherwise the question sat there waiting
+  // for a tap that was never coming.
+  function answeredList(answers, powers, players){
+    const list = Object.values(answers || {}).filter(a => a && a.id).map(a => {
+      const p = (players || []).find(x => x.id === a.id);
+      return Object.assign({}, a, { name: a.name || (p && p.name) || '', avatar: a.avatar || (p && p.avatar) || '' });
+    });
+    const seen = new Set(list.map(a => a.id));
+    Object.values(powers || {}).forEach(pw => {
+      if(!pw || !pw.id || pw.type !== 'auto' || seen.has(pw.id)) return;
+      const p = (players || []).find(x => x.id === pw.id);
+      seen.add(pw.id);
+      list.push({ id: pw.id, name: (p && p.name) || pw.name || '', avatar: (p && p.avatar) || pw.avatar || '', auto: true });
+    });
+    return list;
   }
 
   // The join link and QR encode this page's own URL, so they only work on other
@@ -2813,8 +2925,13 @@
     const paintingQuestion = answering && !state.reviewing && !questionTimeUp && !isLobby && !showStandings && !showIntro;
     if(paintingQuestion && root.getAttribute('data-qepoch') === state.answerEpoch){
       const row = document.getElementById('qb-answered-row');
-      if(row) row.innerHTML = answeredChipsHTML(Object.values(qAnswersLive).filter(a => a && a.id));
-      return;
+      // If the row has gone (a banner overlay repaint, a stale marker), fall
+      // through to a full render instead of returning — silently patching
+      // nothing is why answers sometimes never appeared on the projector.
+      if(row){
+        row.innerHTML = answeredChipsHTML(answeredList(qAnswersLive, livePowers, players));
+        return;
+      }
     }
     // remember which question (if any) this render is painting, for the patch above
     root.setAttribute('data-qepoch', paintingQuestion ? state.answerEpoch : '');
@@ -2878,7 +2995,7 @@
     } else if(!isLobby && answering && state.reviewing){
       centre = `<div class="qb-idle-box">⏰ Pens down! The host is checking the answers&hellip;</div>`;
     } else if(!isLobby && answering){
-      const answeredList = Object.values(qAnswersLive).filter(a => a && a.id);
+      const answered = answeredList(qAnswersLive, livePowers, players);
       const qTimeUp = displayQTimer && displayQTimer.fired;
       const remainQ = displayQTimer ? Math.max(0, Math.ceil((displayQTimer.endsAt - Date.now()) / 1000)) : (state.qSeconds || QUESTION_SECONDS);
       centre = qTimeUp ? `
@@ -2902,7 +3019,7 @@
           `).join('')}
         </div>
         `}
-        <div class="qb-answered-row" id="qb-answered-row">${answeredChipsHTML(answeredList)}</div>
+        <div class="qb-answered-row" id="qb-answered-row">${answeredChipsHTML(answered)}</div>
       `;
     } else if(!isLobby && state.status === 'reveal' && state.qMode){
       const results = state.qResults || [];
@@ -3283,7 +3400,7 @@
   }
   async function savePlayerEdit(){
     const nameEl = document.getElementById('qb-edit-name');
-    const name = (nameEl ? nameEl.value : editName).trim();
+    const name = (nameEl ? nameEl.value : editName).trim().slice(0, NAME_MAX);
     if(!name){ alert('The name cannot be empty.'); return; }
     const target = editingPlayerId;
     await withPlayers(players => {
@@ -4342,10 +4459,12 @@
     const players = await getPlayers();
     const p = players.find(x => x.id === id);
     if(!confirm(`Remove ${p ? p.name : 'this player'} from the game? Their score goes with them.`)) return false;
-    // splice in place: withPlayers saves the array it handed out
-    await withPlayers(list => {
+    // a PATCH merge can't say "gone", so drop the key outright — inside the
+    // queue, and before the merge, so a concurrent host write can't resurrect them
+    await withPlayers(async list => {
       const i = list.findIndex(x => x.id === id);
       if(i >= 0) list.splice(i, 1);
+      try{ await fetch(playerUrl(id), { method:'DELETE' }); }catch(e){}
     });
     renderAdmin();
   }
@@ -4795,7 +4914,7 @@
     // the host never has to click "end it now". Not for text rounds — typed
     // answers can be revised until the clock runs out.
     const allIn = answering && !state.reviewing && !state.textMode && players.length > 0
-      && Object.values(liveAnswers).filter(a => a && a.id).length >= players.length;
+      && answeredList(liveAnswers, livePowers, players).length >= players.length;
     if(allIn){
       // Fire straight from here rather than parking a timer for adminTick to
       // notice — waiting on the next 250ms tick was pure dead air. The flag is
@@ -4843,7 +4962,7 @@
 
     let nowPlayingSection = '';
     if(state.roundId && state.qMode){
-      const answeredList = Object.values(liveAnswers).filter(a => a && a.id);
+      const answered = answeredList(liveAnswers, livePowers, players);
       const typeTag = state.sliderMode ? '🎚️ slider range' : state.textMode ? '⌨️ type the answer' : '❓ multiple choice';
       const correctShown = state.sliderMode ? fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax))
         : state.textMode ? (state.textAnswer || '')
@@ -4877,7 +4996,7 @@
               : state.sliderMode
                 ? `Guesses lock in when the ${state.qSeconds || QUESTION_SECONDS}s are up, then it scores itself &mdash; closest to ${esc(fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax)))} wins${state.sliderBand ? `, plus anyone within ±${esc(fmtNum(state.sliderBand, groupNums(state.sliderMax)))}` : ''}`
                 : `Answers lock in automatically when the ${state.qSeconds || QUESTION_SECONDS}s are up`}</div>
-            <div class="who">${answeredList.length} of ${players.length} ${state.sliderMode ? 'guessed' : 'answered'}</div>
+            <div class="who">${answered.length} of ${players.length} ${state.sliderMode ? 'guessed' : 'answered'}</div>
             ${adminAutoEnd === state.answerEpoch && !state.textMode ? `<div class="qb-small" style="color:var(--gold);">🚦 Everyone's in &mdash; scoring it now&hellip;</div>` : ''}
             <button class="qb-btn qb-btn-gold" data-action="end-question">${state.textMode ? "Everyone's in &mdash; end it now" : 'End it now'}</button>
           </div>
@@ -5085,9 +5204,9 @@
             <h3>👥 Players (${players.length})</h3>
             ${players.length === 0 ? '<p class="qb-small">Nobody has joined yet. Send them to the sign up page.</p>' : ''}
             ${sortedPlayers(players).map(p => p.id === editingPlayerId ? `
-              <div class="qb-player-admin-row" style="flex-direction:column;align-items:stretch;gap:10px;">
+              <div class="qb-player-admin-row plain" style="flex-direction:column;align-items:stretch;gap:10px;">
                 <label class="qb-label" style="margin-bottom:0;">Display name</label>
-                <input class="qb-input" id="qb-edit-name" maxlength="20" value="${esc(editName)}" style="margin-bottom:0;" />
+                <input class="qb-input" id="qb-edit-name" maxlength="${NAME_MAX}" value="${esc(editName)}" style="margin-bottom:0;" />
                 <div class="qb-avatar-grid">
                   ${AVATARS.map(a => `<div class="qb-avatar ${a===editAvatar?'selected':''}" data-action="edit-pick-avatar" data-avatar="${a}">${a}</div>`).join('')}
                 </div>
@@ -5097,7 +5216,7 @@
                 </div>
               </div>
             ` : p.id === editingScoreId ? `
-              <div class="qb-player-admin-row">
+              <div class="qb-player-admin-row plain">
                 <span>${p.avatar} ${esc(p.name)}</span>
                 <span style="display:flex;align-items:center;gap:8px;">
                   <input class="qb-input" id="qb-edit-score" type="number" value="${p.score}"
@@ -5107,9 +5226,12 @@
                 </span>
               </div>
             ` : `
-              <div class="qb-player-admin-row">
-                <span>${p.avatar} ${esc(p.name)}${puHeldHTML(p)}${puPending(p) > 0 ? ' <span class="qb-wager-tag" title="Earned a powerup pick — they choose it on their phone">🎁 pick due</span>' : ''}</span>
-                <span style="display:flex;align-items:center;gap:8px;">
+              <div class="qb-player-admin-row ${p.virus ? 'infected' : ''}" ${p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
+                <span class="av">${p.avatar}</span>
+                <span class="who">${esc(p.name)}</span>
+                ${puHeldHTML(p)}
+                <span class="tags">${puPending(p) > 0 ? '<span class="qb-wager-tag" title="Earned a powerup pick — they choose it on their phone">🎁</span>' : ''}</span>
+                <span class="ctl">
                   <button class="qb-score-adj" data-action="edit-player" data-id="${p.id}" title="Edit name and picture">&#9998;</button>
                   <button class="qb-score-adj" data-action="adjust-score" data-id="${p.id}" data-delta="-1" title="Take a point off">&minus;</button>
                   <button class="qb-score-adj" data-action="edit-score" data-id="${p.id}" title="Type a new score"
