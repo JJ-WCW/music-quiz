@@ -305,6 +305,55 @@
     from{filter:brightness(1);box-shadow:0 0 80px 24px rgba(255,40,0,0.7);}
     to{filter:brightness(1.6) saturate(1.4);box-shadow:0 0 140px 60px rgba(255,210,30,0.85);}
   }
+  /* carpet bomb: hazard-striped and shuddering, a wider blast than one bomb */
+  .qb-banner.carpet{
+    background:repeating-linear-gradient(135deg,#ff6a00 0 26px,#1a1206 26px 52px);
+    color:#fff;text-shadow:0 3px 0 #6b2400,0 6px 22px rgba(0,0,0,0.7);
+    border:4px solid #ffb800;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 3.2s both, qb-carpet-shake 0.1s linear infinite;
+  }
+  @keyframes qb-carpet-shake{
+    0%{transform:translate(0,0);}   25%{transform:translate(-5px,3px);}
+    50%{transform:translate(4px,-3px);} 75%{transform:translate(-3px,-2px);}
+    100%{transform:translate(0,0);}
+  }
+  /* virus: sickly green, breathing rather than exploding */
+  .qb-banner.virus{
+    background:linear-gradient(160deg,#0b3a1c 0%,#1f9c4a 55%,#7ee08a 100%);
+    color:#eafff0;text-shadow:0 2px 0 #06301a,0 5px 18px rgba(0,0,0,0.6);
+    border:4px solid #8dffab;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 3.0s both, qb-virus-breathe 0.9s ease-in-out infinite alternate;
+  }
+  @keyframes qb-virus-breathe{
+    from{filter:hue-rotate(0deg) brightness(1);box-shadow:0 0 50px 12px rgba(60,220,110,0.45);}
+    to{filter:hue-rotate(-18deg) brightness(1.22);box-shadow:0 0 110px 40px rgba(120,255,150,0.7);}
+  }
+  /* the infected player's phone: a green wash every time the virus bites.
+     Deliberately pointer-events:none — unlike the oil slick this is a
+     announcement, not a handicap, and it lands at the reveal anyway. */
+  .qb-virus-overlay{
+    position:fixed;inset:0;z-index:1900;pointer-events:none;overflow:hidden;
+    background:radial-gradient(circle at 50% 42%, rgba(60,220,110,0.30), rgba(4,26,12,0.62));
+    animation:qb-virus-wash 0.5s ease-in-out 5 alternate;
+  }
+  @keyframes qb-virus-wash{from{opacity:0.55;}to{opacity:1;}}
+  .qb-virus-germ{position:absolute;font-size:34px;animation:qb-germ-float linear forwards;opacity:0.9;}
+  @keyframes qb-germ-float{
+    from{transform:translateY(110vh) rotate(0deg);}
+    to{transform:translateY(-20vh) rotate(360deg);}
+  }
+  .qb-virus-msg{
+    position:absolute;left:0;right:0;top:36%;text-align:center;
+    font-family:'Archivo Black',sans-serif;font-size:26px;color:#eafff0;
+    text-shadow:0 2px 14px #04270f;padding:0 18px;
+  }
+  /* a standing infection, shown on the phone until they answer one right */
+  .qb-infected-badge{
+    display:block;margin:8px auto 0;max-width:340px;border-radius:12px;padding:8px 12px;
+    background:linear-gradient(160deg,#0b3a1c,#1f9c4a);border:2px solid #8dffab;
+    color:#eafff0;font-weight:800;text-align:center;
+    animation:qb-virus-breathe 1.1s ease-in-out infinite alternate;
+  }
   /* oil slick: glossy black card for the projector's "X OILED Y" moment */
   .qb-banner.oil{
     background:linear-gradient(170deg,#20242e 0%,#05060a 70%);
@@ -580,6 +629,16 @@
   .qb-bomb-line.oil{
     background:linear-gradient(170deg,#20242e,#05060a);border-color:#46506a;
     color:#cfe0f5;box-shadow:0 10px 40px rgba(0,0,0,0.6);
+  }
+  .qb-bomb-line.sick{
+    background:linear-gradient(160deg,#0b3a1c,#1f9c4a);border-color:#8dffab;
+    color:#eafff0;box-shadow:0 10px 44px rgba(60,220,110,0.35);
+    text-shadow:0 2px 0 #06301a,0 4px 14px rgba(0,0,0,0.5);
+  }
+  .qb-bomb-line.well{
+    background:linear-gradient(160deg,#0d3f52,#22a0c4);border-color:#a8ecff;
+    color:#eafcff;box-shadow:0 10px 44px rgba(60,190,230,0.35);
+    text-shadow:0 2px 0 #06303f,0 4px 14px rgba(0,0,0,0.5);
   }
   /* inside the nuke block the lines are already on a card — don't nest cards */
   .qb-nuke-block .qb-bomb-line{
@@ -1020,6 +1079,10 @@
               blurb:'Whatever you win on this question is doubled. Score nothing and the powerup burned for nothing.' },
     oil:    { icon:'🛢️', name:'Oil Slick', target:'player',
               blurb:'Rains oil down a rival’s phone for 5 seconds — screen blocked, panic guaranteed. Time it cruelly.' },
+    carpet: { icon:'🧨', name:'Carpet Bomb', target:'all',
+              blurb:'−5 points off EVERY rival at once — no aiming, no escape. Only drops if YOU answer this question correctly.' },
+    virus:  { icon:'🦠', name:'Virus', target:'player',
+              blurb:'Infect a rival: −3 now and −3 every question after, until they answer one correctly and cure themselves. Only infects if YOU answer this question correctly.' },
     // Not choosable and never re-earned: everyone is issued exactly one nuke for
     // the whole night, held outside the 3 slots. When it was a normal pick
     // everybody kept taking it and the night turned into a warzone; as a
@@ -1034,6 +1097,8 @@
   const BOMB_DAMAGE = 10;
   const NUKE_DAMAGE = 20;     // what every other player loses when a nuke detonates
   const NUKE_SELF_COST = 10;  // what the nuker pays for pressing the button
+  const CARPET_DAMAGE = 5;    // every rival, all at once (the bomber flies above it)
+  const VIRUS_DAMAGE = 3;     // on infection, then again every question until cured
   // the nuke lives outside the 3 slots: one per player per game, never re-earned
   function hasNuke(p){ return !!(p && p.nuke); }
   function puList(p){ return (p && Array.isArray(p.pu)) ? p.pu.filter(t => POWERUPS[t] && !POWERUPS[t].granted) : []; }
@@ -1226,6 +1291,24 @@
     arm(){ tone(660, 0, 0.1, 'triangle', 0.3); tone(990, 0.1, 0.18, 'triangle', 0.3, 1320); },
     splat(){ [300, 220, 160, 120].forEach((f, i) => tone(f, i * 0.09, 0.13, 'sawtooth', 0.4, f * 0.55)); },
     boom(){ tone(120, 0, 0.8, 'sawtooth', 0.5, 35); tone(60, 0, 0.9, 'square', 0.45, 28); tone(2400, 0, 0.12, 'square', 0.18, 300); },
+    // carpet bomb: a stick of bombs whistling down, then a walking barrage
+    carpet(){
+      for(let i = 0; i < 4; i++){
+        tone(1300, i * 0.16, 0.15, 'sine', 0.16, 320);              // the whistle
+        tone(95, 0.42 + i * 0.2, 0.42, 'sawtooth', 0.42, 32);       // and the hit
+        tone(160, 0.42 + i * 0.2, 0.26, 'square', 0.24, 44);
+      }
+    },
+    // virus: a queasy descending warble, sickly rather than explosive
+    virus(){
+      tone(430, 0, 0.5, 'sawtooth', 0.3, 175);
+      tone(205, 0.1, 0.5, 'square', 0.2, 88);
+      for(let i = 0; i < 5; i++) tone(330 - i * 32, 0.48 + i * 0.09, 0.13, 'triangle', 0.2, 265 - i * 32);
+    },
+    // each ongoing infection tick: a short sickly blip
+    tick(){ tone(300, 0, 0.18, 'sawtooth', 0.28, 150); tone(150, 0.05, 0.2, 'square', 0.2, 78); },
+    // cured: a bright rising sparkle, the opposite of the infection warble
+    cured(){ [523, 659, 880, 1319].forEach((f, i) => tone(f, i * 0.07, 0.3, 'sine', 0.28)); },
     // air-raid siren for the tactical nuke: three rising-falling sweeps over a rumble
     siren(){
       for(let i = 0; i < 3; i++){
@@ -1379,7 +1462,9 @@
   function puHeldHTML(p){
     // an unspent nuke shows too, so the room can see who's still armed
     const icons = puList(p).map(t => POWERUPS[t].icon).concat(hasNuke(p) ? [POWERUPS.nuke.icon] : []);
-    return icons.length ? `<span class="qb-pu-held">${icons.join('')}</span>` : '';
+    // a standing infection rides alongside, so the room can see who's bleeding
+    const sick = p && p.virus ? `<span class="qb-pu-held" style="color:#7ee08a;" title="Infected">🦠</span>` : '';
+    return (icons.length ? `<span class="qb-pu-held">${icons.join('')}</span>` : '') + sick;
   }
   function scoreboardHTML(players, big){
     const sorted = sortedPlayers(players);
@@ -1603,6 +1688,23 @@
     playSound('splat');
     setTimeout(() => o.remove(), 5000);
   }
+  // the virus biting this phone: a green wash with drifting germs. Appended to
+  // <body> like the banners so the 800ms player poll can't wipe it mid-animation,
+  // and pointer-events:none because it's an announcement, not a handicap.
+  function showVirusHit(headline, note, cured){
+    document.querySelectorAll('.qb-virus-overlay').forEach(el => el.remove());
+    const o = document.createElement('div');
+    o.className = 'qb-virus-overlay';
+    if(cured) o.style.background = 'radial-gradient(circle at 50% 42%, rgba(60,200,230,0.30), rgba(4,20,30,0.60))';
+    let germs = '';
+    for(let i = 0; i < 12; i++){
+      germs += `<span class="qb-virus-germ" style="left:${Math.round(Math.random() * 92)}vw;animation-duration:${(1.6 + Math.random() * 1.8).toFixed(2)}s;animation-delay:${(Math.random() * 1.2).toFixed(2)}s;">${cured ? '💊' : '🦠'}</span>`;
+    }
+    o.innerHTML = germs + `<div class="qb-virus-msg">${headline}${note ? `<div style="font-size:18px;margin-top:10px;font-family:'Nunito',sans-serif;">${note}</div>` : ''}</div>`;
+    document.body.appendChild(o);
+    playSound(cured ? 'cured' : 'virus');
+    setTimeout(() => o.remove(), 3400);
+  }
   // 50/50 keeps the correct answer plus ONE wrong one. The kept wrong answer is
   // hashed from the epoch + player id so every repaint (and a phone refresh)
   // cuts the same two — no re-rolling the snip by reloading.
@@ -1724,9 +1826,24 @@
         // question rounds have no single winner, so react to my own result
         if(state.qMode){
           const mine = (state.qResults || []).find(r => r.id === myPlayerId);
-          const bombedMe = (state.puEvents || []).some(e => e.type === 'bomb' && e.fired && e.target === myPlayerId);
-          const nukedMe = (state.puEvents || []).some(e => e.type === 'nuke' && e.fired && e.from !== myPlayerId);
-          if(nukedMe || bombedMe) playSound('boom');   // getting hit is personal
+          const evs = state.puEvents || [];
+          const bombedMe = evs.some(e => e.type === 'bomb' && e.fired && e.target === myPlayerId);
+          const nukedMe = evs.some(e => e.type === 'nuke' && e.fired && e.from !== myPlayerId);
+          const carpetedMe = evs.some(e => e.type === 'carpet' && e.fired && e.from !== myPlayerId);
+          // the virus gets its own green wash on the victim's phone, every
+          // single time it bites — that's the whole point of the mechanic
+          const infectedMe = evs.find(e => e.type === 'virus' && e.fired && e.target === myPlayerId);
+          const tickedMe = evs.find(e => e.type === 'tick' && e.target === myPlayerId);
+          const curedMe = evs.find(e => e.type === 'cured' && e.target === myPlayerId);
+          if(infectedMe){
+            showVirusHit(`🦠 ${esc(infectedMe.fromName || 'Someone')} INFECTED YOU!`,
+              `&minus;${infectedMe.damage} now, and &minus;${VIRUS_DAMAGE} every question until you answer one right`);
+          } else if(tickedMe){
+            showVirusHit(`🦠 THE VIRUS BIT YOU &minus;${tickedMe.damage}`,
+              'Answer a question correctly to cure it!');
+          } else if(curedMe){
+            showVirusHit('💊✨ YOU CURED THE VIRUS!', 'No more points bleeding away', true);
+          } else if(nukedMe || bombedMe || carpetedMe) playSound('boom');   // getting hit is personal
           else if(mine && (mine.correct || (mine.auto && mine.won))) playSound('correct');
           else if(mine && mine.answered) playSound('wrong');
         }
@@ -1778,6 +1895,24 @@
         if(e.type === 'nuke' && e.fired && e.from !== myPlayerId){
           statusSub += ` · ☢️ ${esc(e.fromName)} nuked the room: −${e.damage} points to you`;
         }
+        if(e.type === 'carpet' && e.from === myPlayerId){
+          statusSub += e.fired ? ` · 🧨 YOUR CARPET BOMB LANDED! −${e.damage} off all ${(e.hits || []).length} rival${(e.hits || []).length === 1 ? '' : 's'}`
+            : ' · 🧨💨 Your carpet bomb never left the bay — you have to get the question right!';
+        }
+        if(e.type === 'carpet' && e.fired && e.from !== myPlayerId){
+          statusSub += ` · 🧨 ${esc(e.fromName)} carpet bombed the room: −${e.damage} to you`;
+        }
+        if(e.type === 'virus' && e.from === myPlayerId){
+          statusSub += e.fired ? ` · 🦠 You infected ${esc(e.targetName)}! −${e.damage} a question until they answer one right`
+            : ' · 🦠💨 Your virus didn\'t take — you have to get the question right!';
+        }
+        if(e.type === 'virus' && e.fired && e.target === myPlayerId){
+          statusSub += ` · 🦠 ${esc(e.fromName)} INFECTED you: −${e.damage} now, −${VIRUS_DAMAGE} a question until you answer one right`;
+        }
+        if(e.type === 'tick' && e.target === myPlayerId){
+          statusSub += ` · 🦠 Still infected: −${e.damage}. Answer one right to cure it!`;
+        }
+        if(e.type === 'cured' && e.target === myPlayerId) statusSub += ' · 💊✨ You answered right and CURED the virus!';
         if(e.type === 'auto' && e.from === myPlayerId && !e.fired) statusSub += ' · ✅ Auto-Correct wasted — you were right anyway!';
         if(e.type === 'double' && e.from === myPlayerId && !e.fired) statusSub += ' · 🎲 Double or Nothing came up NOTHING — powerup burned!';
       });
@@ -1969,7 +2104,7 @@
       } else {
         const slotBtn = (t, i) => {
           const d = POWERUPS[t];
-          const needsRival = d.target === 'player' && !rivals.length;
+          const needsRival = (d.target === 'player' || d.target === 'all') && !rivals.length;
           const offType = t === 'fifty' && (state.textMode || state.sliderMode || !(state.qAnswers || []).length);
           const usable = puLive && !myPlay && !needsRival && !offType;
           const why = !puLive ? '' : myPlay ? '' : offType ? '50/50 only works on multiple choice' : needsRival ? 'needs another player' : '';
@@ -1994,6 +2129,7 @@
             myPlay ? `${POWERUPS[myPlay.type] ? POWERUPS[myPlay.type].icon + ' ' + POWERUPS[myPlay.type].name : 'Powerup'} played${myPlay.targetName ? ` on ${esc(myPlay.targetName)}` : ''} &mdash; one per question!`
             : puLive ? 'Powerups are live — tap one to play it (one per question)'
             : myPu.length ? 'Your powerups — they unlock on question rounds' : 'No powerups banked'}</div>
+          ${me.virus ? `<div class="qb-infected-badge">🦠 INFECTED by ${esc(me.virus.byName || 'someone')} &mdash; &minus;${VIRUS_DAMAGE} every question until you answer one correctly!</div>` : ''}
         `;
         // a claim is banked until a slot frees up; then the picker appears
         if(puPending(me) > 0 && myPu.length < PU_MAX_SLOTS){
@@ -2020,7 +2156,7 @@
       // powerups: the tray, an armed target list, a played state or a pending
       // claim all change the phone's structure, so they must sit in the shape
       myPu, myPlay ? [myPlay.type, myPlay.target] : null, puArming ? puArming.type : null,
-      puLive, me ? puPending(me) : 0, hasNuke(me),
+      puLive, me ? puPending(me) : 0, hasNuke(me), !!(me && me.virus),
       myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length
     ]);
     if(prevPlayerShape === shape && root.querySelector('.qb-card')){
@@ -2339,8 +2475,28 @@
   // there are no arguments about the damage) and oil slicks. Autos, doubles and
   // 50/50s show as badges on the result rows instead.
   function puEventLinesHTML(s){
-    const evs = (s.puEvents || []).filter(e => e.type === 'bomb' || e.type === 'oil' || e.type === 'nuke');
+    const evs = (s.puEvents || []).filter(e => ['bomb','oil','nuke','carpet','virus','tick','cured'].includes(e.type));
     return evs.map(e => {
+      if(e.type === 'carpet'){
+        return e.fired
+          ? `<div class="qb-bomb-line">🧨💥 ${esc(e.fromName)} CARPET BOMBED THE ROOM! &minus;${e.damage} each
+               <span class="maths">${(e.hits || []).map(h => `${h.avatar || ''} ${esc(h.name)} &minus;${e.damage}`).join(' &middot; ') || 'nobody in range'}</span></div>`
+          : `<div class="qb-bomb-line dud">🧨💨 ${esc(e.fromName)}'s carpet bomb never left the bay &mdash; wrong answer!</div>`;
+      }
+      if(e.type === 'virus'){
+        return e.fired
+          ? `<div class="qb-bomb-line sick">🦠 ${esc(e.fromName)} INFECTED ${esc(e.targetName)}! &minus;${e.damage} points
+               <span class="maths">&minus;${VIRUS_DAMAGE} more every question until ${esc(e.targetName)} answers one correctly</span></div>`
+          : `<div class="qb-bomb-line dud">🦠💨 ${esc(e.fromName)}'s virus didn't take &mdash; you have to get it RIGHT to infect!</div>`;
+      }
+      if(e.type === 'tick'){
+        return `<div class="qb-bomb-line sick">🦠 ${esc(e.targetName)} is still infected! &minus;${e.damage} points
+               <span class="maths">Answer a question correctly to cure it${e.fromName ? ` &mdash; ${esc(e.fromName)}'s virus is still working` : ''}</span></div>`;
+      }
+      if(e.type === 'cured'){
+        return `<div class="qb-bomb-line well">💊✨ ${esc(e.targetName)} answered right and CURED the virus!
+               <span class="maths">No more &minus;${VIRUS_DAMAGE} a question &mdash; back to full health</span></div>`;
+      }
       if(e.type === 'nuke'){
         return e.fired
           ? `<div class="qb-nuke-block">
@@ -2586,23 +2742,42 @@
       const prev = prevDisplaySnap;
       if(buzz && buzz.id !== prev.buzzedId) playBuzzFor(buzz);
       if(state.status === 'reveal' && prev.status !== 'reveal'){
-        // a detonated nuke outranks everything, then bombs, then normal noises
-        const firedNuke = (state.puEvents || []).find(e => e.type === 'nuke' && e.fired);
-        // every bomb gets named: showBanner only paints one card, so two bombers
-        // in one question share it rather than one silently going unannounced
-        const firedBombs = (state.puEvents || []).filter(e => e.type === 'bomb' && e.fired);
-        if(firedNuke){
-          playSound('siren');
-          setTimeout(() => playSound('boom'), 900);
-          showBanner('nuke', `☢️💥 ${esc(firedNuke.fromName)} NUKED THE ROOM!<div style="font-size:26px;margin-top:10px;">&minus;${firedNuke.damage} to everyone else &middot; &minus;${firedNuke.selfCost} to ${esc(firedNuke.fromName)} &middot; nobody scores!</div>`);
-        } else if(firedBombs.length){
-          playSound('boom');
-          showBanner('bomb', firedBombs.length === 1
-            ? `💣💥 ${esc(firedBombs[0].fromName)} BOMBED ${esc(firedBombs[0].targetName)}!<div style="font-size:26px;margin-top:10px;">&minus;${firedBombs[0].damage} points</div>`
-            : `💣💥 ${firedBombs.length} BOMBS WENT OFF!<div style="font-size:26px;margin-top:10px;">${firedBombs.map(b => `${esc(b.fromName)} &rarr; ${esc(b.targetName)} &minus;${b.damage}`).join('<br>')}</div>`);
-        } else {
+        const evs = state.puEvents || [];
+        const sub = t => `<div style="font-size:26px;margin-top:10px;">${t}</div>`;
+        // Several of these can land on one reveal (a bomb AND a virus biting).
+        // Queue them loudest-first instead of letting one silently replace the
+        // rest — every deduction gets its own moment on the projector.
+        const queue = [];
+        const firedNuke = evs.find(e => e.type === 'nuke' && e.fired);
+        if(firedNuke) queue.push({ kind:'nuke', sound:'siren', after:() => setTimeout(() => playSound('boom'), 900),
+          html:`☢️💥 ${esc(firedNuke.fromName)} NUKED THE ROOM!${sub(`&minus;${firedNuke.damage} to everyone else &middot; &minus;${firedNuke.selfCost} to ${esc(firedNuke.fromName)} &middot; nobody scores!`)}` });
+        const firedCarpet = evs.filter(e => e.type === 'carpet' && e.fired);
+        firedCarpet.forEach(c => queue.push({ kind:'carpet', sound:'carpet',
+          html:`🧨💥 ${esc(c.fromName)} CARPET BOMBED THE ROOM!${sub(`&minus;${c.damage} to every rival &mdash; ${(c.hits || []).map(h => esc(h.name)).join(', ') || 'nobody in range'}`)}` }));
+        // every bomb gets named: one card would leave a second bomber unannounced
+        const firedBombs = evs.filter(e => e.type === 'bomb' && e.fired);
+        if(firedBombs.length) queue.push({ kind:'bomb', sound:'boom',
+          html: firedBombs.length === 1
+            ? `💣💥 ${esc(firedBombs[0].fromName)} BOMBED ${esc(firedBombs[0].targetName)}!${sub(`&minus;${firedBombs[0].damage} points`)}`
+            : `💣💥 ${firedBombs.length} BOMBS WENT OFF!${sub(firedBombs.map(b => `${esc(b.fromName)} &rarr; ${esc(b.targetName)} &minus;${b.damage}`).join('<br>'))}` });
+        const infections = evs.filter(e => e.type === 'virus' && e.fired);
+        if(infections.length) queue.push({ kind:'virus', sound:'virus',
+          html:`🦠 ${infections.map(v => `${esc(v.fromName)} INFECTED ${esc(v.targetName)}!`).join('<br>')}${sub(`&minus;${VIRUS_DAMAGE} now, and &minus;${VIRUS_DAMAGE} every question until they answer one right`)}` });
+        const ticks = evs.filter(e => e.type === 'tick');
+        if(ticks.length) queue.push({ kind:'virus', sound:'tick',
+          html:`🦠 STILL INFECTED${sub(ticks.map(t2 => `${t2.targetAvatar || ''} ${esc(t2.targetName)} &minus;${t2.damage}`).join('<br>') + '<br>Answer one right to cure it!')}` });
+        const cures = evs.filter(e => e.type === 'cured');
+        if(cures.length) queue.push({ kind:'correct', sound:'cured',
+          html:`💊✨ CURED!${sub(cures.map(c => `${c.targetAvatar || ''} ${esc(c.targetName)}`).join('<br>') + ' shook off the virus')}` });
+        if(!queue.length){
           playSound(state.winnerId ? 'correct' : 'reveal');
           if(state.winnerId) showBanner('correct', `${state.winnerAvatar || ''} ${esc(state.winnerName || 'Someone')} got it correct!`);
+        } else {
+          queue.slice(0, 3).forEach((b, i) => setTimeout(() => {
+            playSound(b.sound);
+            showBanner(b.kind, b.html);
+            if(b.after) b.after();
+          }, i * 3600));
         }
       }
       const lockedCount = (state.lockedOut || []).length;
@@ -2761,6 +2936,8 @@
                 : Number.isInteger(r.choice) ? `<span class="qb-pick-chip" style="background:${ANSWER_COLORS[r.choice] || '#666'};"><span class="shape">${ANSWER_SHAPES[r.choice] || ''}</span>${esc((state.qAnswers || [])[r.choice] || '')}</span>` : ''}
               ${r.correct || r.won > 0 ? `<span class="delta">+${r.won}${r.kitty ? ` +${r.kitty} kitty!` : r.bullseye ? ' bullseye!' : r.fastest ? ' fastest!' : ''}${r.double ? ' 🎲 DOUBLED!' : ''}${r.auto && !r.correct ? ' ✅ auto-correct!' : ''}</span>` : ''}
               ${r.bombDamage ? `<span class="delta" style="color:#ff6b6b;">💣 &minus;${r.bombDamage}</span>` : ''}
+              ${r.carpetDelta ? `<span class="delta" style="color:#ff9d3d;">🧨 ${r.carpetDelta}</span>` : ''}
+              ${r.virusDelta ? `<span class="delta" style="color:#7ee08a;">🦠 ${r.virusDelta}</span>` : ''}
               ${r.nukeDelta ? `<span class="delta" style="color:#ffd21f;">☢️ ${r.nukeDelta}</span>` : ''}
               <span class="t">${state.sliderMode ? (Number.isFinite(r.dist) ? (r.dist === 0 ? 'spot on' : fmtNum(r.dist, groupNums(state.sliderMax)) + ' off') : '') : (r.ms ? (r.ms / 1000).toFixed(2) + 's' : '')}</span>
             </div>
@@ -2768,6 +2945,8 @@
           ${noAnswer.map(r => `
             <div class="qb-qresult-row wrong" style="opacity:0.5;">
               <span>💤</span><span>${r.avatar || ''} ${esc(r.name || '')}</span>
+              ${r.carpetDelta ? `<span class="delta" style="color:#ff9d3d;">🧨 ${r.carpetDelta}</span>` : ''}
+              ${r.virusDelta ? `<span class="delta" style="color:#7ee08a;">🦠 ${r.virusDelta}</span>` : ''}
               ${r.nukeDelta ? `<span class="delta" style="color:#ffd21f;">☢️ ${r.nukeDelta}</span>` : ''}
               <span class="t">no answer</span>
             </div>
@@ -2796,7 +2975,7 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival or oil up their screen. One per question, and every <strong>${PU_EVERY} points you climb</strong> earns a fresh pick &mdash; get knocked back and climbing it again earns another!</li>
+            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival, oil up their screen, 🧨 carpet bomb everyone at once or 🦠 infect someone with a virus that bleeds them &minus;${VIRUS_DAMAGE} a question until they answer one right. One per question, and every <strong>${PU_EVERY} points you climb</strong> earns a fresh pick &mdash; get knocked back and climbing it again earns another!</li>
             <li>☢️ Everyone also gets <strong>ONE tactical nuke</strong> for the whole quiz: &minus;${NUKE_DAMAGE} to every rival, &minus;${NUKE_SELF_COST} to you, nobody scores that question. Use it once and it's gone &mdash; save it for when you're desperate.</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
             <li>🎚️ Others are <strong>slide-to-guess</strong> &mdash; drag to your number, closest guess wins, spot on gets a bonus.</li>
@@ -3797,11 +3976,30 @@
   //            Won nothing = burned for nothing: that's the gamble.
   //   bomb   — fires only if the bomber scored; the victim just loses 10, so a
   //            victim who got the question right nets (their winnings − 10).
+  //   carpet — fires only if the bomber scored; −5 off every rival at once.
+  //   virus  — fires only if the infector scored; −3 now, then −3 on every
+  //            question until the victim answers one correctly and is cured.
   //   oil / fifty — no scoring effect, recorded for the reveal's storytelling.
   // A play of a type you don't hold is ignored; every real play consumes its
   // slot win or lose. Earned picks refresh here too, after the dust settles.
   async function applyPowerups(s, results, players){
     s.puEvents = [];
+    // Standing infections bite FIRST, before any new ones land, so a player
+    // infected this question takes the one hit rather than two. Answering
+    // correctly is the cure, and cures instead of docking.
+    players.forEach(p => {
+      if(!p.virus) return;
+      const r = results.find(x => x.id === p.id);
+      if(r && r.correct){
+        s.puEvents.push({ type:'cured', target: p.id, targetName: p.name || '', targetAvatar: p.avatar || '' });
+        delete p.virus;
+      } else {
+        p.score = (p.score || 0) - VIRUS_DAMAGE;
+        if(r) r.virusDelta = (r.virusDelta || 0) - VIRUS_DAMAGE;
+        s.puEvents.push({ type:'tick', target: p.id, targetName: p.name || '', targetAvatar: p.avatar || '',
+                          damage: VIRUS_DAMAGE, fromName: (p.virus && p.virus.byName) || '' });
+      }
+    });
     if(s.puEpoch){
       const plays = await fetchPowers(s.puEpoch);
       // nukes resolve LAST: they zero out everything the other powerups may
@@ -3857,6 +4055,32 @@
             ev.targetWon = (tr && tr.won) || 0;          // spelled out at the reveal
             ev.targetNet = ev.targetWon - BOMB_DAMAGE;   // so there are no arguments
             if(tr){ tr.bombedBy = pw.name || 'Someone'; tr.bombDamage = BOMB_DAMAGE; }
+          }
+        } else if(pw.type === 'carpet'){
+          // no aiming: everyone but the bomber takes it, and only if they scored
+          ev.fired = !!(r && r.correct);
+          if(ev.fired){
+            ev.damage = CARPET_DAMAGE;
+            ev.hits = [];
+            players.forEach(pl => {
+              if(pl.id === pw.id) return;              // the bomber flies above the blast
+              pl.score = (pl.score || 0) - CARPET_DAMAGE;
+              ev.hits.push({ id: pl.id, name: pl.name, avatar: pl.avatar });
+              const xr = results.find(x => x.id === pl.id);
+              if(xr) xr.carpetDelta = (xr.carpetDelta || 0) - CARPET_DAMAGE;
+            });
+          }
+        } else if(pw.type === 'virus'){
+          const tp = players.find(pl => pl.id === pw.target);
+          ev.fired = !!(r && r.correct && tp);
+          if(ev.fired){
+            // the infection sticks to the player record and bites again every
+            // question (top of applyPowerups) until they answer one correctly
+            tp.virus = { by: pw.id, byName: pw.name || '' };
+            tp.score = (tp.score || 0) - VIRUS_DAMAGE;
+            ev.damage = VIRUS_DAMAGE;
+            const tr = results.find(x => x.id === pw.target);
+            if(tr) tr.virusDelta = (tr.virusDelta || 0) - VIRUS_DAMAGE;
           }
         } else if(pw.type === 'nuke'){
           // −20 to everyone else, −10 to the nuker, and NOBODY keeps what they
@@ -4135,6 +4359,7 @@
         if(Array.isArray(p.puChosen)) p.pu = p.puChosen.slice(0, PU_MAX_SLOTS);
         p.puOwed = 0; p.puFloor = 0; p.puLadder = PU_EVERY;
         p.nuke = true;   // a fresh night reissues everyone's one-shot nuke
+        delete p.virus;  // and cures any standing infections
       });
     });
     try{ fetch(puPickUrl(), { method:'DELETE' }); }catch(e){}   // no stale claim wishes
