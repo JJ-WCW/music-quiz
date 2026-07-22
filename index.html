@@ -527,6 +527,16 @@
   .qb-pu-row .ic{font-size:26px;flex-shrink:0;}
   .qb-pu-row .tx{flex:1;line-height:1.35;}
   .qb-pu-row .add{font-size:22px;font-weight:800;color:var(--gold);flex-shrink:0;}
+  /* the nuke on the sign-up screen: issued, not chosen, so it isn't a button */
+  .qb-pu-row.granted{border-color:#ffd21f;background:rgba(196,0,0,0.18);cursor:default;margin-bottom:12px;}
+  /* the one-per-game nuke button in the phone tray, set apart from the 3 slots */
+  .qb-pu-nuke{
+    display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:6px 0 2px;
+    border-radius:12px;padding:10px;font:inherit;font-weight:800;cursor:pointer;
+    background:linear-gradient(160deg,#8f0000,#e00000);color:#fff;border:2px solid #ffd21f;
+  }
+  .qb-pu-nuke:disabled{opacity:0.4;cursor:default;filter:grayscale(0.6);}
+  .qb-pu-nuke.spent{background:rgba(255,255,255,0.05);border-color:rgba(255,255,255,0.15);color:var(--muted);}
   /* in-game tray on the phone */
   .qb-pu-tray{display:flex;gap:10px;justify-content:center;align-items:center;margin:8px 0 4px;}
   .qb-pu-btn{width:54px;height:54px;border-radius:14px;border:2px solid var(--gold);background:rgba(244,185,66,0.14);font-size:26px;cursor:pointer;position:relative;transition:transform 0.15s;}
@@ -1010,44 +1020,54 @@
               blurb:'Whatever you win on this question is doubled. Score nothing and the powerup burned for nothing.' },
     oil:    { icon:'🛢️', name:'Oil Slick', target:'player',
               blurb:'Rains oil down a rival’s phone for 5 seconds — screen blocked, panic guaranteed. Time it cruelly.' },
-    nuke:   { icon:'☢️', name:'Tactical Nuke', target:'all', maxHold:1,
-              blurb:'−20 points to EVERY other player and −10 to yourself — and nobody wins anything on this question. Only detonates if YOU answer correctly. One nuke in your bank at a time.' }
+    // Not choosable and never re-earned: everyone is issued exactly one nuke for
+    // the whole night, held outside the 3 slots. When it was a normal pick
+    // everybody kept taking it and the night turned into a warzone; as a
+    // one-per-game last resort it stays a real moment.
+    nuke:   { icon:'☢️', name:'Tactical Nuke', target:'all', granted:true,
+              blurb:'−20 points to EVERY other player and −10 to yourself — and nobody wins anything on this question. Only detonates if YOU answer correctly. You get ONE for the whole quiz.' }
   };
+  // the powerups a player can actually choose (the nuke is issued, not picked)
+  const PU_CHOOSABLE = Object.entries(POWERUPS).filter(([, d]) => !d.granted);
   const PU_MAX_SLOTS = 3;
   const PU_EVERY = 25;        // a fresh powerup pick every 25 points climbed
   const BOMB_DAMAGE = 10;
   const NUKE_DAMAGE = 20;     // what every other player loses when a nuke detonates
   const NUKE_SELF_COST = 10;  // what the nuker pays for pressing the button
-  // some powerups (the nuke) cap how many of them one bank can hold
-  function puCanHold(held, type){
-    const max = POWERUPS[type] && POWERUPS[type].maxHold;
-    return !max || held.filter(t => t === type).length < max;
-  }
-  function puList(p){ return (p && Array.isArray(p.pu)) ? p.pu.filter(t => POWERUPS[t]) : []; }
-  // banked-but-unspent picks: highest 50s rung this player has ever reached,
-  // minus the picks they've already taken. Claims wait until a slot is free.
+  // the nuke lives outside the 3 slots: one per player per game, never re-earned
+  function hasNuke(p){ return !!(p && p.nuke); }
+  function puList(p){ return (p && Array.isArray(p.pu)) ? p.pu.filter(t => POWERUPS[t] && !POWERUPS[t].granted) : []; }
+  // picks earned but not yet taken; a claim waits until a slot is free
   function puPending(p){
-    return Math.max(0, (p && p.puHi || 0) - (p && p.puClaimed || 0));
+    return Math.max(0, (p && p.puOwed) || 0);
   }
-  // rung-climbing is monotonic — a bomb knocking you back under 50 can't earn
-  // you a second pick for re-crossing it. Host tab only (it owns qb-players).
-  function refreshPuHi(players){
+  // Picks are earned by CLIMBING, not by reaching a high-water mark: every
+  // PU_EVERY points gained above your low point banks one. Sinking lowers the
+  // bar with you, so a bombed player who fights back up 25 earns another —
+  // which is the whole point of a catch-up mechanic. (It used to track the
+  // highest rung ever reached, so being knocked down meant re-climbing to your
+  // old peak before earning anything, punishing exactly the player it should
+  // have been helping.) Host tab only — it owns qb-players.
+  function refreshPuEarned(players){
     players.forEach(p => {
-      // Rungs are derived from the score, so changing PU_EVERY (or meeting a
-      // player who joined before powerups existed) would retroactively mint a
-      // pile of picks for points already scored — 4 at once for someone on 100.
-      // Rebase instead: keep however many picks they were genuinely OWED, and
-      // treat everything below their current score as already collected.
-      // puLadder records which spacing their rungs were counted under.
+      const score = p.score || 0;
+      // First sight under this spacing — a fresh player, someone who joined
+      // before powerups existed, or a changed PU_EVERY. Carry over whatever
+      // they were genuinely owed and start measuring the climb from here, so
+      // points already scored can't retroactively mint a backlog of picks.
       if(p.puLadder !== PU_EVERY){
-        const owed = Math.max(0, (p.puHi || 0) - (p.puClaimed || 0));
-        const rung = Math.max(0, Math.floor((p.score || 0) / PU_EVERY));
-        p.puHi = rung;
-        p.puClaimed = Math.max(0, rung - owed);
+        p.puOwed = Math.max(0, (p.puOwed || 0) || ((p.puHi || 0) - (p.puClaimed || 0)));
+        p.puFloor = score;
         p.puLadder = PU_EVERY;
+        delete p.puHi; delete p.puClaimed;   // superseded by puOwed/puFloor
       }
-      const rung = Math.max(0, Math.floor((p.score || 0) / PU_EVERY));
-      if(rung > (p.puHi || 0)) p.puHi = rung;
+      if(typeof p.puFloor !== 'number' || !isFinite(p.puFloor)) p.puFloor = score;
+      if(score < p.puFloor) p.puFloor = score;      // knocked back: the bar follows you down
+      while(score >= p.puFloor + PU_EVERY){         // climbed a rung: bank a pick
+        p.puOwed = (p.puOwed || 0) + 1;
+        p.puFloor += PU_EVERY;
+      }
+      if(p.nuke === undefined) p.nuke = true;       // everyone is issued exactly one
     });
   }
   function powerUrl(epoch, playerId){
@@ -1357,8 +1377,9 @@
 
   // the powerups a player is holding, shown beside their name on every board
   function puHeldHTML(p){
-    const held = puList(p);
-    return held.length ? `<span class="qb-pu-held">${held.map(t => POWERUPS[t].icon).join('')}</span>` : '';
+    // an unspent nuke shows too, so the room can see who's still armed
+    const icons = puList(p).map(t => POWERUPS[t].icon).concat(hasNuke(p) ? [POWERUPS.nuke.icon] : []);
+    return icons.length ? `<span class="qb-pu-held">${icons.join('')}</span>` : '';
   }
   function scoreboardHTML(players, big){
     const sorted = sortedPlayers(players);
@@ -1478,15 +1499,19 @@
           <span class="qb-small" style="align-self:center;">${joinDraftPu.length < PU_MAX_SLOTS ? `pick ${PU_MAX_SLOTS - joinDraftPu.length} more` : 'ready! tap a slot to swap'}</span>
         </div>
         <div class="qb-pu-menu">
-          ${Object.entries(POWERUPS).map(([t, d]) => `
-            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS || !puCanHold(joinDraftPu, t) ? 'disabled' : ''}>
+          ${PU_CHOOSABLE.map(([t, d]) => `
+            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS ? 'disabled' : ''}>
               <span class="ic">${d.icon}</span>
               <span class="tx"><strong>${d.name}</strong><br><span class="qb-small">${d.blurb}</span></span>
               <span class="add">+</span>
             </button>
           `).join('')}
         </div>
-        <p class="qb-small" style="margin:4px 0 12px;">Earn another pick every ${PU_EVERY} points you climb &mdash; if you've got a free slot.</p>
+        <div class="qb-pu-row granted">
+          <span class="ic">${POWERUPS.nuke.icon}</span>
+          <span class="tx"><strong>${POWERUPS.nuke.name}</strong> &mdash; issued to everyone<br><span class="qb-small">${POWERUPS.nuke.blurb}</span></span>
+        </div>
+        <p class="qb-small" style="margin:4px 0 12px;">Earn another pick every ${PU_EVERY} points you <strong>climb</strong> &mdash; knocked back? Climbing those points again earns another.</p>
         <button class="qb-btn qb-btn-primary" data-action="submit-join">Join the quiz</button>
         ${claimHTML}
       </div>
@@ -1513,7 +1538,7 @@
     // can refill everyone's slots to how they started the night
     players.push({ id, name, avatar: joinDraftAvatar, score: 0, buzzSound: sound,
       pu: joinDraftPu.slice(0, PU_MAX_SLOTS), puChosen: joinDraftPu.slice(0, PU_MAX_SLOTS),
-      puHi: 0, puClaimed: 0, puLadder: PU_EVERY });
+      puOwed: 0, puFloor: 0, puLadder: PU_EVERY, nuke: true });
     await savePlayers(players);
     saveStoredIdentity(id, name, joinDraftAvatar);
     myPlayerId = id;
@@ -1952,11 +1977,19 @@
             ${usable ? '' : 'disabled'} title="${esc(d.name + (why ? ' — ' + why : ''))}">${d.icon}</button>`;
         };
         const emptySlots = Math.max(0, PU_MAX_SLOTS - myPu.length);
+        // the nuke sits outside the 3 slots: one per player for the whole quiz,
+        // never re-earned, so it stays the last-ditch leveller rather than
+        // something everybody stockpiles
+        const iHaveNuke = hasNuke(me);
+        const nukeUsable = puLive && !myPlay && iHaveNuke && rivals.length > 0;
         trayHTML = `
           <div class="qb-pu-tray">
             ${myPu.map((t, i) => slotBtn(t, i)).join('')}
             ${Array.from({length: emptySlots}, (_, i) => `<span class="qb-pu-slot empty">${myPu.length + i + 1}</span>`).join('')}
           </div>
+          <button class="qb-pu-nuke ${iHaveNuke ? '' : 'spent'}" data-action="play-pu" data-type="nuke" ${nukeUsable ? '' : 'disabled'}>
+            ${iHaveNuke ? `${POWERUPS.nuke.icon} TACTICAL NUKE &middot; one per quiz` : `${POWERUPS.nuke.icon} Nuke spent`}
+          </button>
           <div class="qb-pu-note">${
             myPlay ? `${POWERUPS[myPlay.type] ? POWERUPS[myPlay.type].icon + ' ' + POWERUPS[myPlay.type].name : 'Powerup'} played${myPlay.targetName ? ` on ${esc(myPlay.targetName)}` : ''} &mdash; one per question!`
             : puLive ? 'Powerups are live — tap one to play it (one per question)'
@@ -1967,7 +2000,7 @@
           trayHTML += `
             <div class="qb-pu-target" style="border:1px solid var(--gold);border-radius:14px;padding:12px;">
               <div class="qb-pu-note" style="color:var(--gold);">🎁 <strong>You've earned a new powerup!</strong> Pick one:</div>
-              ${Object.entries(POWERUPS).map(([t, d]) => `<button data-action="claim-pu" data-type="${t}" ${puCanHold(myPu, t) ? '' : 'disabled title="Only one at a time"'}>${d.icon} ${d.name}</button>`).join('')}
+              ${PU_CHOOSABLE.map(([t, d]) => `<button data-action="claim-pu" data-type="${t}">${d.icon} ${d.name}</button>`).join('')}
             </div>
           `;
         }
@@ -1987,7 +2020,7 @@
       // powerups: the tray, an armed target list, a played state or a pending
       // claim all change the phone's structure, so they must sit in the shape
       myPu, myPlay ? [myPlay.type, myPlay.target] : null, puArming ? puArming.type : null,
-      puLive, me ? puPending(me) : 0,
+      puLive, me ? puPending(me) : 0, hasNuke(me),
       myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length
     ]);
     if(prevPlayerShape === shape && root.querySelector('.qb-card')){
@@ -2094,7 +2127,8 @@
     if(type === 'fifty' && (state.textMode || state.sliderMode || !(state.qAnswers || []).length)) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
-    if(!puList(me).includes(type)) return;              // don't own one
+    // the nuke is held on its own field (one per quiz); the rest live in slots
+    if(POWERUPS[type].granted ? !hasNuke(me) : !puList(me).includes(type)) return;
     const existing = await fetchPowers(state.puEpoch);
     if(existing[myPlayerId]){ puArming = null; renderPlayer(); return; }  // already played this question
     const target = targetId ? players.find(p => p.id === targetId) : null;
@@ -2122,7 +2156,8 @@
     if(!myPlayerId || !POWERUPS[type]) return;
     const players = await getPlayers();
     const me = players.find(p => p.id === myPlayerId);
-    if(!me || puPending(me) <= 0 || puList(me).length >= PU_MAX_SLOTS || !puCanHold(puList(me), type)) return;
+    if(POWERUPS[type] && POWERUPS[type].granted) return;   // the nuke is issued, never claimed
+    if(!me || puPending(me) <= 0 || puList(me).length >= PU_MAX_SLOTS) return;
     playSound('join');
     try{
       await fetch(puPickUrl(myPlayerId), { method:'PUT', body: JSON.stringify({ id: myPlayerId, type, ts: { '.sv':'timestamp' } }) });
@@ -2761,7 +2796,8 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival, oil up their screen &mdash; or drop the ☢️ tactical nuke on the whole room. One per question, and every <strong>${PU_EVERY} points</strong> climbed earns a fresh pick!</li>
+            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival or oil up their screen. One per question, and every <strong>${PU_EVERY} points you climb</strong> earns a fresh pick &mdash; get knocked back and climbing it again earns another!</li>
+            <li>☢️ Everyone also gets <strong>ONE tactical nuke</strong> for the whole quiz: &minus;${NUKE_DAMAGE} to every rival, &minus;${NUKE_SELF_COST} to you, nobody scores that question. Use it once and it's gone &mdash; save it for when you're desperate.</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
             <li>🎚️ Others are <strong>slide-to-guess</strong> &mdash; drag to your number, closest guess wins, spot on gets a bonus.</li>
           </ol>
@@ -2897,9 +2933,10 @@
   let adminPoll = null;
   let adminSeq = 0;   // stale-render ticket, same idea as the display's
   let adminQTimer = null;   // question countdown; fires the automatic scoring
-  // everyone has answered: end the question a beat later without the host
+  // everyone has answered: end the question immediately, without the host
   // clicking anything. MC + slider only — typed answers can be changed right up
   // to the whistle, so auto-ending a text round would eat those edits.
+  // Holds the answerEpoch already auto-ended, so it fires exactly once.
   let adminAutoEnd = null;
   // the 3-2-1 before a question. The host tab is the single writer, so it owns
   // the clock: when this local timer ends it mints the answer epoch and stamps
@@ -3007,7 +3044,7 @@
     await withPlayers(players => {
       const p = players.find(x => x.id === id);
       if(p) p.score = (p.score || 0) + delta;
-      refreshPuHi(players);   // a nudge over a rung still earns the pick
+      refreshPuEarned(players);   // a nudge over a rung still earns the pick
     });
     renderAdmin();
   }
@@ -3060,7 +3097,7 @@
     await withPlayers(players => {
       const p = players.find(x => x.id === target);
       if(p) p.score = value;
-      refreshPuHi(players);
+      refreshPuEarned(players);
     });
     editingScoreId = null;
     renderAdmin();
@@ -3656,10 +3693,10 @@
       let changed = false;
       for(const [pid, pick] of Object.entries(picks)){
         const p = players.find(x => x.id === pid);
-        if(p && pick && POWERUPS[pick.type] && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS
-            && puCanHold(puList(p), pick.type)){   // e.g. a second nuke — reject, the pick stays owed
+        if(p && pick && POWERUPS[pick.type] && !POWERUPS[pick.type].granted
+            && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS){
           p.pu = puList(p).concat(pick.type);
-          p.puClaimed = (p.puClaimed || 0) + 1;
+          p.puOwed = Math.max(0, (p.puOwed || 0) - 1);
           changed = true;
         }
         try{ fetch(puPickUrl(pid), { method:'DELETE' }); }catch(e){}
@@ -3687,7 +3724,7 @@
         p.score = (p.score || 0) + points + kitty;
         recordReaction(p, buzz, s);
       }
-      refreshPuHi(players);   // song-round winnings climb the powerup rungs too
+      refreshPuEarned(players);   // song-round winnings climb the powerup rungs too
     });
 
     s.status = 'reveal';
@@ -3762,7 +3799,7 @@
   //            victim who got the question right nets (their winnings − 10).
   //   oil / fifty — no scoring effect, recorded for the reveal's storytelling.
   // A play of a type you don't hold is ignored; every real play consumes its
-  // slot win or lose. puHi rungs refresh here too, after the dust settles.
+  // slot win or lose. Earned picks refresh here too, after the dust settles.
   async function applyPowerups(s, results, players){
     s.puEvents = [];
     if(s.puEpoch){
@@ -3775,11 +3812,18 @@
         if(!pw || !pw.id || !POWERUPS[pw.type]) return;
         const p = players.find(pl => pl.id === pw.id);
         if(!p) return;
-        const held = puList(p);
-        const ix = held.indexOf(pw.type);
-        if(ix < 0) return;                 // playing a powerup you don't own does nothing
-        held.splice(ix, 1);                // consumed, win or lose
-        p.pu = held;
+        // the nuke is held on its own field, one per game; everything else
+        // comes out of the 3 slots. Either way it's spent win or lose.
+        if(POWERUPS[pw.type].granted){
+          if(!hasNuke(p)) return;          // already used their one shot
+          p.nuke = false;
+        } else {
+          const held = puList(p);
+          const ix = held.indexOf(pw.type);
+          if(ix < 0) return;               // playing a powerup you don't own does nothing
+          held.splice(ix, 1);
+          p.pu = held;
+        }
         const r = results.find(x => x.id === pw.id);
         const ev = { type: pw.type, from: pw.id, fromName: pw.name || '', fromAvatar: pw.avatar || '',
                      target: pw.target || null, targetName: pw.targetName || '', targetAvatar: pw.targetAvatar || '' };
@@ -3856,7 +3900,7 @@
         s.puEvents.push(ev);
       });
     }
-    refreshPuHi(players);   // rungs climbed this question earn their picks now
+    refreshPuEarned(players);   // rungs climbed this question earn their picks now
   }
 
   // ---------- question round scoring ----------
@@ -4089,7 +4133,8 @@
         p.score = 0; delete p.bestReaction; delete p.buzzes;
         // powerups back to the sign-up picks, rungs back to zero
         if(Array.isArray(p.puChosen)) p.pu = p.puChosen.slice(0, PU_MAX_SLOTS);
-        p.puHi = 0; p.puClaimed = 0; p.puLadder = PU_EVERY;
+        p.puOwed = 0; p.puFloor = 0; p.puLadder = PU_EVERY;
+        p.nuke = true;   // a fresh night reissues everyone's one-shot nuke
       });
     });
     try{ fetch(puPickUrl(), { method:'DELETE' }); }catch(e){}   // no stale claim wishes
@@ -4527,11 +4572,17 @@
     const allIn = answering && !state.reviewing && !state.textMode && players.length > 0
       && Object.values(liveAnswers).filter(a => a && a.id).length >= players.length;
     if(allIn){
-      if(!adminAutoEnd || adminAutoEnd.epoch !== state.answerEpoch){
-        adminAutoEnd = { epoch: state.answerEpoch, at: Date.now() + 2000, fired: false };
+      // Fire straight from here rather than parking a timer for adminTick to
+      // notice — waiting on the next 250ms tick was pure dead air. The flag is
+      // set synchronously before the await inside scoreQuestion, so two
+      // overlapping polls can't both score the same question.
+      if(adminAutoEnd !== state.answerEpoch){
+        adminAutoEnd = state.answerEpoch;
+        scoreQuestion(false);
+        return;                // this paint is stale; scoring re-renders
       }
-    } else {
-      adminAutoEnd = null;   // includes a late joiner pushing the count back under
+    } else if(!answering){
+      adminAutoEnd = null;     // question's over: ready for the next one
     }
 
     // if the admin tab was refreshed mid-review, rebuild the verdicts from the auto-matches
@@ -4602,7 +4653,7 @@
                 ? `Guesses lock in when the ${state.qSeconds || QUESTION_SECONDS}s are up, then it scores itself &mdash; closest to ${esc(fmtGuess(state.sliderAnswer, state.sliderUnit, groupNums(state.sliderMax)))} wins${state.sliderBand ? `, plus anyone within ±${esc(fmtNum(state.sliderBand, groupNums(state.sliderMax)))}` : ''}`
                 : `Answers lock in automatically when the ${state.qSeconds || QUESTION_SECONDS}s are up`}</div>
             <div class="who">${answeredList.length} of ${players.length} ${state.sliderMode ? 'guessed' : 'answered'}</div>
-            ${adminAutoEnd && !state.textMode ? `<div class="qb-small" style="color:var(--gold);">🚦 Everyone's in &mdash; ending automatically&hellip;</div>` : ''}
+            ${adminAutoEnd === state.answerEpoch && !state.textMode ? `<div class="qb-small" style="color:var(--gold);">🚦 Everyone's in &mdash; scoring it now&hellip;</div>` : ''}
             <button class="qb-btn qb-btn-gold" data-action="end-question">${state.textMode ? "Everyone's in &mdash; end it now" : 'End it now'}</button>
           </div>
         `;
@@ -4895,13 +4946,8 @@
           adminQTimer.fired = true;
           scoreQuestion(false);
         }
-        // everyone answered: end it 2s later without waiting for the clock.
-        // Guard both timers so the full-time scorer can't double-fire on top.
-        if(adminAutoEnd && !adminAutoEnd.fired && Date.now() >= adminAutoEnd.at){
-          adminAutoEnd.fired = true;
-          if(adminQTimer) adminQTimer.fired = true;
-          scoreQuestion(false);
-        }
+        // (the everyone's-answered auto-end fires straight from renderAdmin —
+        // no timer to poll here, so there's no dead air before the reveal)
       }, 250);
     }
   }
@@ -4933,7 +4979,7 @@
           playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer (tap also unlocks audio)
         } else if(action === 'join-add-pu'){
           const t = el.getAttribute('data-type');
-          if(joinDraftPu.length < PU_MAX_SLOTS && puCanHold(joinDraftPu, t)){
+          if(joinDraftPu.length < PU_MAX_SLOTS && POWERUPS[t] && !POWERUPS[t].granted){
             joinDraftPu.push(t);
             playSound('join');
             renderJoin(true);   // cached players, so the repaint doesn't steal focus
