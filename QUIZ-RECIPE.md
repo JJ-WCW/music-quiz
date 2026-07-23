@@ -81,6 +81,8 @@ The players are in the **UK**. Write for them:
 
 > **Standard points** (use these unless the user asks for something else): multiple choice = **3**, typed answers = **6** (typing is harder than tapping), sliders = **6** (landing on a precise number is harder than picking from four options). `bonus` — the fastest-finger bonus for the quickest correct answer (on a slider it's the bullseye bonus instead) — is **2 on every question type**.
 
+> **Interleave the question types within a round** — when a round is a "mix of types", **shuffle them so the types alternate** (e.g. slider, MC, typed, MC, typed…); never emit all the multiple-choice questions first, then all the typed, then all the sliders. Blocks of one type in a row make the round feel like three mini-rounds and telegraph what's coming. Easiest method: write each type's questions, then **round-robin / shuffle them into a varied order** before setting each question's `"label": "Question N"` to match its final position. MC usually outnumbers the others, so a short run of MC at the tail is fine — just don't front-load the round type-by-type. (Single-format rounds like a whole odd-one-out round are exempt — they're all one type on purpose.)
+
 **Multiple choice** — everyone taps one of four coloured answers on their phone:
 ```jsonc
 {
@@ -182,6 +184,7 @@ The players are in the **UK**. Write for them:
 - Use the **standard points** unless told otherwise: `question` = 3, `text` = 6, `slider` = 6, `bonus` = 2 on everything.
 - For a `slider`, every `slider*` field must be a **number** (not a string, no commas: `20000000`, never `"20,000,000"`), and `sliderMin < sliderAnswer < sliderMax` — an answer outside the range is unreachable and nobody can win.
 - **Vary where slider answers sit in their ranges** — position fractions spread over ~0.1–0.9, not clustered around the middle (see "Spread the answers across the ranges").
+- **Interleave question types within each mixed round** — alternate the types (slider/MC/typed/…); never list all of one type, then all of the next. A run of the majority type at the tail is fine; a type-by-type block ordering is not. Single-format rounds are exempt (see the note under "Question types").
 - Groups come **first** in the array, sudden deaths **last**.
 - Always include **2 sudden-death tie-breakers** by default (see the note under "The JSON shape") unless the user opts out.
 - Don't invent other `type` values. Valid: `group`, `question`, `text`, `slider`, `song`, `sudden`.
