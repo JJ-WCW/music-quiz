@@ -152,6 +152,12 @@
     box-shadow:inset 0 0 0 2px #4bd06a, 0 0 18px rgba(75,208,106,0.35);
   }
   .qb-score-row.infected .name{color:#c8f7d2;}
+  /* a shielded player's badge goes blue — same idea as the green infection tint */
+  .qb-score-row.shielded{
+    background:linear-gradient(160deg,#123a66,#0c223f);
+    box-shadow:inset 0 0 0 2px #4b9fd0, 0 0 18px rgba(75,160,240,0.35);
+  }
+  .qb-score-row.shielded .name{color:#c8e4f7;}
 
   /* Display (projector) mode */
   .qb-display{width:100%;max-width:1100px;text-align:center;}
@@ -297,6 +303,10 @@
     background:linear-gradient(160deg,#1d4d2a,#123019);
     box-shadow:inset 0 0 0 2px #4bd06a;
   }
+  .qb-player-admin-row.shielded{
+    background:linear-gradient(160deg,#123a66,#0c223f);
+    box-shadow:inset 0 0 0 2px #4b9fd0;
+  }
   .qb-remove-x{background:none;border:none;color:var(--text-dim);font-size:18px;cursor:pointer;}
   .qb-remove-x:hover{color:var(--buzz);}
   .qb-score-adj{
@@ -354,6 +364,35 @@
     50%{transform:translate(4px,-3px);} 75%{transform:translate(-3px,-2px);}
     100%{transform:translate(0,0);}
   }
+  /* ninja: deep purple, a quick dart in and out */
+  .qb-banner.ninja{
+    background:linear-gradient(160deg,#2a0f52 0%,#6a2fd0 60%,#a875ff 100%);
+    color:#f3ecff;text-shadow:0 3px 0 #1a0733,0 6px 22px rgba(0,0,0,0.6);
+    border:4px solid #c9a8ff;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 3.0s both, qb-ninja-dart 0.6s ease-in-out infinite alternate;
+  }
+  @keyframes qb-ninja-dart{
+    from{filter:brightness(1);box-shadow:0 0 50px 14px rgba(150,90,240,0.45);}
+    to{filter:brightness(1.28);box-shadow:0 0 110px 40px rgba(190,140,255,0.7);}
+  }
+  /* royal marine: olive, a firm military stamp */
+  .qb-banner.marine{
+    background:repeating-linear-gradient(135deg,#4c5a22 0 26px,#2a3315 26px 52px);
+    color:#f4f7e6;text-shadow:0 3px 0 #1a1f0c,0 6px 22px rgba(0,0,0,0.7);
+    border:4px solid #c7d98a;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 3.2s both;
+  }
+  /* shield: bright blue force field, calm shimmer not an explosion */
+  .qb-banner.shield{
+    background:linear-gradient(160deg,#0b2f66 0%,#2f7fe0 60%,#8fc4ff 100%);
+    color:#eaf4ff;text-shadow:0 3px 0 #06213f,0 6px 22px rgba(0,0,0,0.6);
+    border:4px solid #a8d4ff;
+    animation:qb-explode 0.5s cubic-bezier(.17,.89,.32,1.28) both, qb-banner-out 0.45s ease 3.0s both, qb-shield-shimmer 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes qb-shield-shimmer{
+    from{filter:brightness(1);box-shadow:0 0 50px 14px rgba(60,150,240,0.45);}
+    to{filter:brightness(1.25);box-shadow:0 0 120px 44px rgba(150,200,255,0.75);}
+  }
   /* virus: sickly green, breathing rather than exploding */
   .qb-banner.virus{
     background:linear-gradient(160deg,#0b3a1c 0%,#1f9c4a 55%,#7ee08a 100%);
@@ -390,6 +429,25 @@
     background:linear-gradient(160deg,#0b3a1c,#1f9c4a);border:2px solid #8dffab;
     color:#eafff0;font-weight:800;text-align:center;
     animation:qb-virus-breathe 1.1s ease-in-out infinite alternate;
+  }
+  /* a live shield, shown on the phone while it lasts */
+  .qb-shielded-badge{
+    display:block;margin:8px auto 0;max-width:340px;border-radius:12px;padding:8px 12px;
+    background:linear-gradient(160deg,#0b2f66,#2f7fe0);border:2px solid #a8d4ff;
+    color:#eaf4ff;font-weight:800;text-align:center;
+    animation:qb-virus-breathe 1.1s ease-in-out infinite alternate;
+  }
+  /* the shielded player's own full-screen blue wash the moment it goes up */
+  .qb-shield-overlay{
+    position:fixed;inset:0;z-index:1900;pointer-events:none;overflow:hidden;
+    background:radial-gradient(circle at 50% 42%, rgba(60,150,240,0.30), rgba(4,14,30,0.62));
+    animation:qb-virus-wash 0.5s ease-in-out 5 alternate;
+  }
+  .qb-shield-spark{position:absolute;font-size:34px;animation:qb-germ-float linear forwards;opacity:0.9;}
+  .qb-shield-msg{
+    position:absolute;left:0;right:0;top:36%;text-align:center;
+    font-family:'Archivo Black',sans-serif;font-size:26px;color:#eaf4ff;
+    text-shadow:0 2px 14px #06213f;padding:0 18px;
   }
   /* oil slick: glossy black card for the projector's "X OILED Y" moment */
   .qb-banner.oil{
@@ -486,6 +544,10 @@
   .qb-standing-row.infected{
     background:linear-gradient(160deg,#1d4d2a,#123019);
     box-shadow:inset 0 0 0 2px #4bd06a, 0 0 22px rgba(75,208,106,0.3);
+  }
+  .qb-standing-row.shielded{
+    background:linear-gradient(160deg,#123a66,#0c223f);
+    box-shadow:inset 0 0 0 2px #4b9fd0, 0 0 22px rgba(75,160,240,0.3);
   }
   .qb-standing-row .who{flex:1;text-align:left;}
   .qb-standing-row .pts{font-family:'Archivo Black',sans-serif;color:var(--gold);font-size:30px;}
@@ -624,7 +686,7 @@
   .qb-pu-row .add{font-size:22px;font-weight:800;color:var(--gold);flex-shrink:0;}
   /* the nuke on the sign-up screen: issued, not chosen, so it isn't a button */
   .qb-pu-row.granted{border-color:#ffd21f;background:rgba(196,0,0,0.18);cursor:default;margin-bottom:12px;}
-  /* the one-per-game nuke button in the phone tray, set apart from the 3 slots */
+  /* the one-per-game nuke button in the phone tray, set apart from the slots */
   .qb-pu-nuke{
     display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin:6px 0 2px;
     border-radius:12px;padding:10px;font:inherit;font-weight:800;cursor:pointer;
@@ -687,6 +749,24 @@
     background:linear-gradient(160deg,#0d3f52,#22a0c4);border-color:#a8ecff;
     color:#eafcff;box-shadow:0 10px 44px rgba(60,190,230,0.35);
     text-shadow:0 2px 0 #06303f,0 4px 14px rgba(0,0,0,0.5);
+  }
+  /* ninja: a deep purple heist card */
+  .qb-bomb-line.ninja{
+    background:linear-gradient(160deg,#2a0f52,#6a2fd0);border-color:#c9a8ff;
+    color:#f3ecff;box-shadow:0 10px 44px rgba(140,80,230,0.4);
+    text-shadow:0 2px 0 #1a0733,0 4px 14px rgba(0,0,0,0.5);
+  }
+  /* royal marine: military olive */
+  .qb-bomb-line.marine{
+    background:linear-gradient(160deg,#2c3316,#5f6b28);border-color:#c7d98a;
+    color:#f4f7e6;box-shadow:0 10px 44px rgba(120,140,40,0.4);
+    text-shadow:0 2px 0 #1a1f0c,0 4px 14px rgba(0,0,0,0.5);
+  }
+  /* shield: bright blue force field */
+  .qb-bomb-line.shield{
+    background:linear-gradient(160deg,#0b2f66,#2f7fe0);border-color:#a8d4ff;
+    color:#eaf4ff;box-shadow:0 10px 44px rgba(60,150,240,0.4);
+    text-shadow:0 2px 0 #06213f,0 4px 14px rgba(0,0,0,0.5);
   }
   /* inside the nuke block the lines are already on a card — don't nest cards */
   .qb-nuke-block .qb-bomb-line{
@@ -800,7 +880,7 @@
   let joinDraftName = '';
   let joinDraftAvatar = null;
   let joinDraftSound = null;   // index into BUZZ_SOUNDS; player picks it on the join screen
-  let joinDraftPu = [];        // the 3 powerups picked at sign-up (duplicates allowed)
+  let joinDraftPu = [];        // the powerups picked at sign-up (duplicates allowed)
   let codeDraft = '';
 
   // admin round-builder form state (local, not shared, only the host edits this)
@@ -1143,7 +1223,7 @@
   }
 
   // ---------- powerups ----------
-  // Players carry up to 3 powerups in a bank, chosen at sign-up, and earn a new
+  // Players carry a bank of powerups (PU_MAX_SLOTS), chosen at sign-up, and earn a new
   // pick every PU_EVERY points climbed. Question rounds only (MC / typed / slider).
   // One play per player per question; a play is an own-key write under the
   // question's puEpoch, so it's race-free like buzzes/answers/bets, and the
@@ -1163,8 +1243,14 @@
               blurb:'−5 points off EVERY rival at once — no aiming, no escape. Only drops if YOU answer this question correctly.' },
     virus:  { icon:'🦠', name:'Virus', target:'player',
               blurb:'Infect a rival: −3 now and −3 every question after, until they answer one correctly and cure themselves. Only infects if YOU answer this question correctly.' },
+    ninja:  { icon:'🥷', name:'Ninja', target:'all',
+              blurb:'A cheeky ninja swipes 3 points from EVERY rival and hands them all to you. Only strikes if YOU answer this question correctly.' },
+    shield: { icon:'🛡️', name:'Shield', target:'self', immediate:true,
+              blurb:'Wraps you in a force field for 3 questions — nothing anyone plays can touch you. Works the moment you equip it, no need to answer right.' },
+    marine: { icon:'🪖', name:'Royal Marine', target:'player',
+              blurb:'Send a marine into a rival’s arsenal to steal up to 2 of their powerups for yourself. Only succeeds if YOU answer this question correctly.' },
     // Not choosable and never re-earned: everyone is issued exactly one nuke for
-    // the whole night, held outside the 3 slots. When it was a normal pick
+    // the whole night, held outside the slots. When it was a normal pick
     // everybody kept taking it and the night turned into a warzone; as a
     // one-per-game last resort it stays a real moment.
     nuke:   { icon:'☢️', name:'Tactical Nuke', target:'all', granted:true,
@@ -1173,14 +1259,19 @@
   // the powerups a player can actually choose (the nuke is issued, not picked)
   const PU_CHOOSABLE = Object.entries(POWERUPS).filter(([, d]) => !d.granted);
   const NAME_MAX = 10;   // long names break the projector's score badges
-  const PU_MAX_SLOTS = 3;
-  const PU_EVERY = 25;        // a fresh powerup pick every 25 points climbed
+  const PU_MAX_SLOTS = 5;
+  const PU_EVERY = 20;        // a fresh powerup pick every 20 points climbed
   const BOMB_DAMAGE = 10;
   const NUKE_DAMAGE = 20;     // what every other player loses when a nuke detonates
   const NUKE_SELF_COST = 10;  // what the nuker pays for pressing the button
   const CARPET_DAMAGE = 5;    // every rival, all at once (the bomber flies above it)
   const VIRUS_DAMAGE = 3;     // on infection, then again every question until cured
-  // the nuke lives outside the 3 slots: one per player per game, never re-earned
+  const NINJA_STEAL = 3;      // swiped from each rival and handed to the ninja
+  const SHIELD_QUESTIONS = 3; // questions of full immunity from an equipped shield
+  const MARINE_STEAL = 2;     // powerups a marine lifts from a rival's bank
+  // a shield gives full immunity to everyone else's powerups while it lasts
+  function isShielded(p){ return !!(p && p.shield > 0); }
+  // the nuke lives outside the slots: one per player per game, never re-earned
   function hasNuke(p){ return !!(p && p.nuke); }
   function puList(p){ return (p && Array.isArray(p.pu)) ? p.pu.filter(t => POWERUPS[t] && !POWERUPS[t].granted) : []; }
   // picks earned but not yet taken; a claim waits until a slot is free
@@ -1390,6 +1481,23 @@
     tick(){ tone(300, 0, 0.18, 'sawtooth', 0.28, 150); tone(150, 0.05, 0.2, 'square', 0.2, 78); },
     // cured: a bright rising sparkle, the opposite of the infection warble
     cured(){ [523, 659, 880, 1319].forEach((f, i) => tone(f, i * 0.07, 0.3, 'sine', 0.28)); },
+    // ninja: a whistled katana swipe, then a quick coin-swipe flourish
+    ninja(){
+      tone(1800, 0, 0.14, 'sine', 0.28, 300);                    // the swish
+      tone(2600, 0.05, 0.1, 'sine', 0.2, 600);
+      [1047, 1319, 1568, 2093].forEach((f, i) => tone(f, 0.2 + i * 0.05, 0.1, 'triangle', 0.22));  // coins
+    },
+    // shield: a bright shimmering power-up, rising and ringing
+    shield(){
+      [392, 523, 659, 784].forEach((f, i) => tone(f, i * 0.06, 0.4, 'sine', 0.26));
+      tone(1047, 0.24, 0.7, 'triangle', 0.22);
+      tone(1568, 0.24, 0.7, 'sine', 0.14);
+    },
+    // royal marine: a two-tone bugle call, then a snappy drum roll
+    marine(){
+      tone(392, 0, 0.2, 'square', 0.3); tone(523, 0.2, 0.2, 'square', 0.3); tone(659, 0.4, 0.35, 'square', 0.3);
+      for(let i = 0; i < 6; i++) tone(180, 0.75 + i * 0.05, 0.05, 'square', 0.22);
+    },
     // air-raid siren for the tactical nuke: three rising-falling sweeps over a rumble
     siren(){
       for(let i = 0; i < 3; i++){
@@ -1552,7 +1660,7 @@
     const sorted = sortedPlayers(players);
     if(sorted.length === 0) return `<p class="qb-small">No players have joined yet.</p>`;
     return `<div class="${big ? 'qb-display-scoreboard' : ''}">` + sorted.map((p,i)=>`
-      <div class="qb-score-row ${p.virus ? 'infected' : ''}" ${p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
+      <div class="qb-score-row ${isShielded(p) ? 'shielded' : p.virus ? 'infected' : ''}" ${isShielded(p) ? `title="Shielded for ${p.shield} more"` : p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
         <span class="qb-rank">${i+1}.</span>
         <span class="av">${p.avatar}</span>
         <span class="name">${esc(p.name)}</span>
@@ -1661,9 +1769,9 @@
         <div class="qb-buzzer-grid">
           ${BUZZ_SOUNDS.map((b, i) => `<button class="qb-buzzer-pick ${i===joinDraftSound?'selected':''}" data-action="pick-buzzer" data-sound="${i}">${esc(b.label)}</button>`).join('')}
         </div>
-        <label class="qb-label">Pick your 3 powerups &mdash; you can take doubles</label>
+        <label class="qb-label">Pick your ${PU_MAX_SLOTS} powerups &mdash; you can take doubles</label>
         <div class="qb-pu-slots">
-          ${[0,1,2].map(i => joinDraftPu[i]
+          ${Array.from({length: PU_MAX_SLOTS}, (_, i) => joinDraftPu[i]
             ? `<button class="qb-pu-slot filled" data-action="join-remove-pu" data-idx="${i}" title="Tap to put it back">${POWERUPS[joinDraftPu[i]].icon}</button>`
             : `<span class="qb-pu-slot empty">${i + 1}</span>`).join('')}
           <span class="qb-small" style="align-self:center;">${joinDraftPu.length < PU_MAX_SLOTS ? `pick ${PU_MAX_SLOTS - joinDraftPu.length} more` : 'ready! tap a slot to swap'}</span>
@@ -1796,6 +1904,20 @@
     playSound(cured ? 'cured' : 'virus');
     setTimeout(() => o.remove(), 3400);
   }
+  // blue force-field wash on the shielded player's own phone, the moment it's up
+  function showShieldRaised(){
+    document.querySelectorAll('.qb-shield-overlay').forEach(el => el.remove());
+    const o = document.createElement('div');
+    o.className = 'qb-shield-overlay';
+    let sparks = '';
+    for(let i = 0; i < 10; i++){
+      sparks += `<span class="qb-shield-spark" style="left:${Math.round(Math.random() * 92)}vw;animation-duration:${(1.4 + Math.random() * 1.6).toFixed(2)}s;animation-delay:${(Math.random() * 1.0).toFixed(2)}s;">🛡️</span>`;
+    }
+    o.innerHTML = sparks + `<div class="qb-shield-msg">🛡️ SHIELD UP!<div style="font-size:18px;margin-top:10px;font-family:'Nunito',sans-serif;">Nothing can touch you for ${SHIELD_QUESTIONS} questions</div></div>`;
+    document.body.appendChild(o);
+    playSound('shield');
+    setTimeout(() => o.remove(), 3400);
+  }
   // 50/50 keeps the correct answer plus ONE wrong one. The kept wrong answer is
   // hashed from the epoch + player id so every repaint (and a phone refresh)
   // cuts the same two — no re-rolling the snip by reloading.
@@ -1878,7 +2000,7 @@
       myPlay = powers[myPlayerId] || null;
       // suffer any oil slick aimed at this phone, once per play
       Object.values(powers).forEach(pw => {
-        if(pw && pw.type === 'oil' && pw.target === myPlayerId && pw.id !== myPlayerId){
+        if(pw && pw.type === 'oil' && pw.target === myPlayerId && pw.id !== myPlayerId && !isShielded(me)){
           const key = state.puEpoch + ':' + pw.id;
           if(!oilSeen[key]){ oilSeen[key] = 1; showOilSlick(pw.name); }
         }
@@ -1926,7 +2048,12 @@
           const infectedMe = evs.find(e => e.type === 'virus' && e.fired && e.target === myPlayerId);
           const tickedMe = evs.find(e => e.type === 'tick' && e.target === myPlayerId);
           const curedMe = evs.find(e => e.type === 'cured' && e.target === myPlayerId);
-          if(infectedMe){
+          const ninjaedMe = evs.some(e => e.type === 'ninja' && e.fired && e.from !== myPlayerId && (e.hits || []).some(h => h.id === myPlayerId));
+          const marinedMe = evs.some(e => e.type === 'marine' && e.fired && e.target === myPlayerId);
+          const iShielded = evs.find(e => e.type === 'shield' && e.from === myPlayerId);
+          if(iShielded){
+            showShieldRaised();
+          } else if(infectedMe){
             showVirusHit(`🦠 ${esc(infectedMe.fromName || 'Someone')} INFECTED YOU!`,
               `&minus;${infectedMe.damage} now, and &minus;${VIRUS_DAMAGE} every question until you answer one right`);
           } else if(tickedMe){
@@ -1934,7 +2061,7 @@
               'Answer a question correctly to cure it!');
           } else if(curedMe){
             showVirusHit('💊✨ YOU CURED THE VIRUS!', 'No more points bleeding away', true);
-          } else if(nukedMe || bombedMe || carpetedMe) playSound('boom');   // getting hit is personal
+          } else if(nukedMe || bombedMe || carpetedMe || ninjaedMe || marinedMe) playSound('boom');   // getting hit is personal
           else if(mine && (mine.correct || (mine.auto && mine.won))) playSound('correct');
           else if(mine && mine.answered) playSound('wrong');
         }
@@ -2004,6 +2131,25 @@
           statusSub += ` · 🦠 Still infected: −${e.damage}. Answer one right to cure it!`;
         }
         if(e.type === 'cured' && e.target === myPlayerId) statusSub += ' · 💊✨ You answered right and CURED the virus!';
+        if(e.type === 'ninja' && e.from === myPlayerId){
+          statusSub += e.fired ? ` · 🥷 Your ninja swiped +${e.gained} off the room!`
+            : ' · 🥷💨 Your ninja slipped — you have to get the question right!';
+        }
+        if(e.type === 'ninja' && e.fired && e.from !== myPlayerId && (e.hits || []).some(h => h.id === myPlayerId)){
+          statusSub += ` · 🥷 ${esc(e.fromName)}'s ninja robbed you of −${e.steal}`;
+        }
+        if(e.type === 'shield' && e.from === myPlayerId) statusSub += ` · 🛡️ Shield up! Nothing can touch you for ${e.questions} questions`;
+        if(e.type === 'marine' && e.from === myPlayerId){
+          statusSub += e.shielded ? ` · 🪖🛡️ ${esc(e.targetName)}'s shield blocked your marine!`
+            : !e.fired ? ' · 🪖💨 Your marine stood down — you have to get the question right!'
+            : e.empty ? ` · 🪖 Your marine raided ${esc(e.targetName)} — but they had nothing to steal!`
+            : ` · 🪖 Your marine looted ${e.stole.join(' ')} from ${esc(e.targetName)}!`;
+        }
+        if(e.type === 'marine' && e.fired && e.target === myPlayerId){
+          statusSub += ` · 🪖 ${esc(e.fromName)}'s marine looted ${e.stole.join(' ')} from your bank!`;
+        }
+        if(e.type === 'bomb' && e.shielded && e.target === myPlayerId) statusSub += ` · 🛡️ Your shield bounced ${esc(e.fromName)}'s bomb!`;
+        if(e.type === 'virus' && e.shielded && e.target === myPlayerId) statusSub += ` · 🛡️ Your shield blocked ${esc(e.fromName)}'s virus!`;
         if(e.type === 'auto' && e.from === myPlayerId && !e.fired) statusSub += ' · ✅ Auto-Correct wasted — you were right anyway!';
         if(e.type === 'double' && e.from === myPlayerId && !e.fired) statusSub += ' · 🎲 Double or Nothing came up NOTHING — powerup burned!';
       });
@@ -2184,11 +2330,11 @@
     let trayHTML = '';
     if(me){
       if(puArming && puLive && !myPlay){
-        // aiming: pick a victim (bomb / oil slick)
+        // aiming: pick a victim (bomb / oil slick / virus / royal marine)
         trayHTML = `
           <div class="qb-pu-target">
             <div class="qb-pu-note">${POWERUPS[puArming.type].icon} <strong>${POWERUPS[puArming.type].name}</strong> &mdash; on who?</div>
-            ${rivals.map(p => `<button data-action="pu-target" data-type="${puArming.type}" data-target="${p.id}">${p.avatar} ${esc(p.name)} &middot; ${p.score} pts</button>`).join('')}
+            ${rivals.map(p => `<button data-action="pu-target" data-type="${puArming.type}" data-target="${p.id}">${p.avatar} ${esc(p.name)} &middot; ${p.score} pts${isShielded(p) ? ' 🛡️ shielded!' : ''}</button>`).join('')}
             <button class="qb-btn qb-btn-ghost qb-btn-small" data-action="pu-cancel">Never mind</button>
           </div>
         `;
@@ -2203,7 +2349,7 @@
             ${usable ? '' : 'disabled'} title="${esc(d.name + (why ? ' — ' + why : ''))}">${d.icon}</button>`;
         };
         const emptySlots = Math.max(0, PU_MAX_SLOTS - myPu.length);
-        // the nuke sits outside the 3 slots: one per player for the whole quiz,
+        // the nuke sits outside the slots: one per player for the whole quiz,
         // never re-earned, so it stays the last-ditch leveller rather than
         // something everybody stockpiles
         const iHaveNuke = hasNuke(me);
@@ -2220,6 +2366,7 @@
             myPlay ? `${POWERUPS[myPlay.type] ? POWERUPS[myPlay.type].icon + ' ' + POWERUPS[myPlay.type].name : 'Powerup'} played${myPlay.targetName ? ` on ${esc(myPlay.targetName)}` : ''} &mdash; one per question!`
             : puLive ? 'Powerups are live — tap one to play it (one per question)'
             : myPu.length ? 'Your powerups — they unlock on question rounds' : 'No powerups banked'}</div>
+          ${isShielded(me) ? `<div class="qb-shielded-badge">🛡️ SHIELDED &mdash; nothing can touch you for ${me.shield} more question${me.shield === 1 ? '' : 's'}!</div>` : ''}
           ${me.virus ? `<div class="qb-infected-badge">🦠 INFECTED by ${esc(me.virus.byName || 'someone')} &mdash; &minus;${VIRUS_DAMAGE} every question until you answer one correctly!</div>` : ''}
         `;
         // a claim is banked until a slot frees up; then the picker appears
@@ -2247,8 +2394,9 @@
       // powerups: the tray, an armed target list, a played state or a pending
       // claim all change the phone's structure, so they must sit in the shape
       myPu, myPlay ? [myPlay.type, myPlay.target] : null, puArming ? puArming.type : null,
-      puLive, me ? puPending(me) : 0, hasNuke(me), !!(me && me.virus),
-      myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length
+      puLive, me ? puPending(me) : 0, hasNuke(me), !!(me && me.virus), (me && me.shield) || 0,
+      myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length,
+      players.map(p => (p.shield > 0 ? 's' : '') + (p.virus ? 'v' : '')).join('')
     ]);
     if(prevPlayerShape === shape && root.querySelector('.qb-card')){
       const set = (id, text) => { const el = document.getElementById(id); if(el) el.textContent = text; };
@@ -2546,6 +2694,11 @@
       : kind === 'bomb' ? ['💣','💥','🔥','💢']
       : kind === 'nuke' ? ['☢️','💥','🔥','🚨']
       : kind === 'oil' ? ['🛢️','⚫','💧','🌧️']
+      : kind === 'carpet' ? ['🧨','💥','🔥','💣']
+      : kind === 'virus' ? ['🦠','🤢','🧫','💚']
+      : kind === 'ninja' ? ['🥷','⭐','💨','🗡️']
+      : kind === 'marine' ? ['🪖','🎖️','💥','🫡']
+      : kind === 'shield' ? ['🛡️','✨','🔵','💠']
       : ['💥','❌','💢','😬'];
     let particles = '';
     for(let i = 0; i < 16; i++){
@@ -2566,15 +2719,36 @@
   // there are no arguments about the damage) and oil slicks. Autos, doubles and
   // 50/50s show as badges on the result rows instead.
   function puEventLinesHTML(s){
-    const evs = (s.puEvents || []).filter(e => ['bomb','oil','nuke','carpet','virus','tick','cured'].includes(e.type));
+    const evs = (s.puEvents || []).filter(e => ['bomb','oil','nuke','carpet','virus','tick','cured','ninja','shield','marine'].includes(e.type));
+    const shieldNote = e => (e.shieldedOut && e.shieldedOut.length)
+      ? `<span class="maths" style="color:#7db4ff;">🛡️ ${e.shieldedOut.map(h => `${h.avatar || ''} ${esc(h.name)}`).join(', ')} shrugged it off behind a shield</span>` : '';
     return evs.map(e => {
+      if(e.type === 'shield'){
+        return `<div class="qb-bomb-line shield">🛡️ ${esc(e.fromName)} RAISED A SHIELD!
+               <span class="maths">Immune to everyone's powerups for ${e.questions} questions</span></div>`;
+      }
+      if(e.type === 'ninja'){
+        return e.fired
+          ? `<div class="qb-bomb-line ninja">🥷 ${esc(e.fromName)}'s NINJA STRUCK! +${e.gained} nabbed
+               <span class="maths">&minus;${e.steal} off ${(e.hits || []).map(h => `${h.avatar || ''} ${esc(h.name)}`).join(', ') || 'nobody'} &rarr; all ${e.gained} to ${esc(e.fromName)}</span>${shieldNote(e)}</div>`
+          : `<div class="qb-bomb-line dud">🥷💨 ${esc(e.fromName)}'s ninja slipped &mdash; wrong answer, no heist!</div>`;
+      }
+      if(e.type === 'marine'){
+        if(e.shielded) return `<div class="qb-bomb-line dud">🪖🛡️ ${esc(e.fromName)}'s marine hit ${esc(e.targetName)}'s shield and retreated empty-handed!</div>`;
+        if(!e.fired) return `<div class="qb-bomb-line dud">🪖💨 ${esc(e.fromName)}'s marine stood down &mdash; wrong answer!</div>`;
+        return e.empty
+          ? `<div class="qb-bomb-line marine">🪖 ${esc(e.fromName)}'s marine raided ${esc(e.targetName)} &mdash; but the arsenal was empty!</div>`
+          : `<div class="qb-bomb-line marine">🪖 ${esc(e.fromName)}'s MARINE LOOTED ${esc(e.targetName)}! Stole ${e.stole.join(' ')}
+               <span class="maths">${e.stoleCount} powerup${e.stoleCount === 1 ? '' : 's'} straight out of ${esc(e.targetName)}'s bank</span></div>`;
+      }
       if(e.type === 'carpet'){
         return e.fired
           ? `<div class="qb-bomb-line">🧨💥 ${esc(e.fromName)} CARPET BOMBED THE ROOM! &minus;${e.damage} each
-               <span class="maths">${(e.hits || []).map(h => `${h.avatar || ''} ${esc(h.name)} &minus;${e.damage}`).join(' &middot; ') || 'nobody in range'}</span></div>`
+               <span class="maths">${(e.hits || []).map(h => `${h.avatar || ''} ${esc(h.name)} &minus;${e.damage}`).join(' &middot; ') || 'nobody in range'}</span>${shieldNote(e)}</div>`
           : `<div class="qb-bomb-line dud">🧨💨 ${esc(e.fromName)}'s carpet bomb never left the bay &mdash; wrong answer!</div>`;
       }
       if(e.type === 'virus'){
+        if(e.shielded) return `<div class="qb-bomb-line dud">🦠🛡️ ${esc(e.fromName)}'s virus splattered on ${esc(e.targetName)}'s shield &mdash; no infection!</div>`;
         return e.fired
           ? `<div class="qb-bomb-line sick">🦠 ${esc(e.fromName)} INFECTED ${esc(e.targetName)}! &minus;${e.damage} points
                <span class="maths">&minus;${VIRUS_DAMAGE} more every question until ${esc(e.targetName)} answers one correctly</span></div>`
@@ -2599,6 +2773,7 @@
           : `<div class="qb-bomb-line dud">☢️💨 ${esc(e.fromName)}'s nuke failed to launch &mdash; wrong answer, warhead wasted!</div>`;
       }
       if(e.type === 'bomb'){
+        if(e.shielded) return `<div class="qb-bomb-line dud">💣🛡️ ${esc(e.fromName)}'s bomb bounced off ${esc(e.targetName)}'s shield &mdash; wasted!</div>`;
         return e.fired
           ? `<div class="qb-bomb-line">💣💥 ${esc(e.fromName)} BOMBED ${esc(e.targetName)}! &minus;${e.damage} points
                <span class="maths">${esc(e.targetName)} ${e.targetWon
@@ -2623,7 +2798,7 @@
     const tied = tiedLeaders(players);
     const tiedIds = tied.map(p => p.id);
     return `<div class="qb-standings">` + sorted.map((p, i) => `
-      <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''} ${p.virus ? 'infected' : ''}">
+      <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''} ${isShielded(p) ? 'shielded' : p.virus ? 'infected' : ''}">
         <span class="rank">${tiedIds.includes(p.id) ? '🤝' : medals[i] || (i + 1) + '.'}</span>
         <span class="av">${p.avatar}</span>
         <span class="who">${esc(p.name)}</span>
@@ -2806,6 +2981,13 @@
           playSound('splat');
           showBanner('oil', `🛢️ ${esc(pw.name || 'Someone')} OILED ${esc(pw.targetName || 'someone')}!<div style="font-size:26px;margin-top:10px;">5 seconds of drippy chaos on their phone</div>`);
         }
+      } else if(pw.type === 'shield'){
+        // shields activate the instant they're equipped, so announce live
+        if(!displayPuSeen[key]){
+          displayPuSeen[key] = 1;
+          playSound('shield');
+          showBanner('shield', `🛡️ ${esc(pw.name || 'Someone')} IS NOW SHIELDED!<div style="font-size:26px;margin-top:10px;">Nothing can touch them for ${SHIELD_QUESTIONS} questions</div>`);
+        }
       } else if(pw.type === 'nuke'){
         nukeArmed = true;
         if(!displayPuSeen[key]){
@@ -2872,6 +3054,13 @@
           html: firedBombs.length === 1
             ? `💣💥 ${esc(firedBombs[0].fromName)} BOMBED ${esc(firedBombs[0].targetName)}!${sub(`&minus;${firedBombs[0].damage} points`)}`
             : `💣💥 ${firedBombs.length} BOMBS WENT OFF!${sub(firedBombs.map(b => `${esc(b.fromName)} &rarr; ${esc(b.targetName)} &minus;${b.damage}`).join('<br>'))}` });
+        const ninjas = evs.filter(e => e.type === 'ninja' && e.fired);
+        ninjas.forEach(nj => queue.push({ kind:'ninja', sound:'ninja',
+          html:`🥷 ${esc(nj.fromName)}'s NINJA STRUCK!${sub(`Swiped &minus;${nj.steal} off every rival &mdash; +${nj.gained} to ${esc(nj.fromName)}`)}` }));
+        const marines = evs.filter(e => e.type === 'marine' && e.fired && e.stoleCount > 0);
+        marines.forEach(mn => queue.push({ kind:'marine', sound:'marine',
+          html:`🪖 ${esc(mn.fromName)}'s MARINE RAIDED ${esc(mn.targetName)}!${sub(`Looted ${mn.stole.join(' ')} straight out of their bank`)}` }));
+        // (shields are announced live the moment they're equipped, so no reveal banner)
         const infections = evs.filter(e => e.type === 'virus' && e.fired);
         if(infections.length) queue.push({ kind:'virus', sound:'virus',
           html:`🦠 ${infections.map(v => `${esc(v.fromName)} INFECTED ${esc(v.targetName)}!`).join('<br>')}${sub(`&minus;${VIRUS_DAMAGE} now, and &minus;${VIRUS_DAMAGE} every question until they answer one right`)}` });
@@ -3055,6 +3244,7 @@
               ${r.bombDamage ? `<span class="delta" style="color:#ff6b6b;">💣 &minus;${r.bombDamage}</span>` : ''}
               ${r.carpetDelta ? `<span class="delta" style="color:#ff9d3d;">🧨 ${r.carpetDelta}</span>` : ''}
               ${r.virusDelta ? `<span class="delta" style="color:#7ee08a;">🦠 ${r.virusDelta}</span>` : ''}
+              ${r.ninjaDelta ? `<span class="delta" style="color:${r.ninjaDelta > 0 ? '#9d7bff' : '#c9b3ff'};">🥷 ${r.ninjaDelta > 0 ? '+' : ''}${r.ninjaDelta}</span>` : ''}
               ${r.nukeDelta ? `<span class="delta" style="color:#ffd21f;">☢️ ${r.nukeDelta}</span>` : ''}
               <span class="t">${state.sliderMode ? (Number.isFinite(r.dist) ? (r.dist === 0 ? 'spot on' : fmtNum(r.dist, groupNums(state.sliderMax)) + ' off') : '') : (r.ms ? (r.ms / 1000).toFixed(2) + 's' : '')}</span>
             </div>
@@ -3064,6 +3254,7 @@
               <span>💤</span><span>${r.avatar || ''} ${esc(r.name || '')}</span>
               ${r.carpetDelta ? `<span class="delta" style="color:#ff9d3d;">🧨 ${r.carpetDelta}</span>` : ''}
               ${r.virusDelta ? `<span class="delta" style="color:#7ee08a;">🦠 ${r.virusDelta}</span>` : ''}
+              ${r.ninjaDelta ? `<span class="delta" style="color:${r.ninjaDelta > 0 ? '#9d7bff' : '#c9b3ff'};">🥷 ${r.ninjaDelta > 0 ? '+' : ''}${r.ninjaDelta}</span>` : ''}
               ${r.nukeDelta ? `<span class="delta" style="color:#ffd21f;">☢️ ${r.nukeDelta}</span>` : ''}
               <span class="t">no answer</span>
             </div>
@@ -3092,7 +3283,7 @@
             <li>Right answer: the points are yours and the round ends.</li>
             <li>Wrong answer: you're out for the rest of that song, and everyone else's buzzers reopen.</li>
             <li>Once you buzz you've got <strong>${ANSWER_SECONDS} seconds</strong> to answer, and only <strong>one guess per song</strong>.</li>
-            <li>💣 You each carry <strong>3 powerups</strong> &mdash; play them on question rounds to auto-score, snip wrong answers, double your winnings, bomb a rival, oil up their screen, 🧨 carpet bomb everyone at once or 🦠 infect someone with a virus that bleeds them &minus;${VIRUS_DAMAGE} a question until they answer one right. One per question, and every <strong>${PU_EVERY} points you climb</strong> earns a fresh pick &mdash; get knocked back and climbing it again earns another!</li>
+            <li>💣 You each carry <strong>${PU_MAX_SLOTS} powerups</strong> &mdash; play them on question rounds to auto-score, double your winnings, 💣 bomb a rival, 🧨 carpet bomb the room, 🦠 infect someone, 🥷 have a ninja swipe points off everyone, 🛡️ shield yourself for 3 questions or 🪖 send a marine to loot a rival's powerups. One per question, and every <strong>${PU_EVERY} points you climb</strong> earns a fresh pick &mdash; get knocked back and climbing it again earns another!</li>
             <li>☢️ Everyone also gets <strong>ONE tactical nuke</strong> for the whole quiz: &minus;${NUKE_DAMAGE} to every rival, &minus;${NUKE_SELF_COST} to you, nobody scores that question. Use it once and it's gone &mdash; save it for when you're desperate.</li>
             <li>❓ Some rounds are <strong>quick-fire questions</strong> &mdash; four colours on your phone, everyone answers, fastest correct answer gets a bonus.</li>
             <li>🎚️ Others are <strong>slide-to-guess</strong> &mdash; drag to your number, closest guess wins, spot on gets a bonus.</li>
@@ -4101,15 +4292,41 @@
   // slot win or lose. Earned picks refresh here too, after the dust settles.
   async function applyPowerups(s, results, players){
     s.puEvents = [];
-    // Standing infections bite FIRST, before any new ones land, so a player
-    // infected this question takes the one hit rather than two. Answering
-    // correctly is the cure, and cures instead of docking.
+    const plays = s.puEpoch ? await fetchPowers(s.puEpoch) : {};
+    const playList = Object.values(plays).filter(pw => pw && pw.id && POWERUPS[pw.type]);
+
+    // ----- shields resolve FIRST, and unconditionally (no correct answer
+    // needed): the force field must be live before anything else this question,
+    // so a bomb thrown the same turn bounces off it -----
+    playList.forEach(pw => {
+      if(pw.type !== 'shield') return;
+      const p = players.find(pl => pl.id === pw.id);
+      if(!p) return;
+      const held = puList(p);
+      const ix = held.indexOf('shield');
+      if(ix < 0) return;                 // don't own one
+      held.splice(ix, 1); p.pu = held;   // consumed
+      p.shield = SHIELD_QUESTIONS;
+      s.puEvents.push({ type:'shield', from: pw.id, fromName: pw.name || '', fromAvatar: pw.avatar || '',
+                        fired: true, questions: SHIELD_QUESTIONS });
+    });
+    // a powerup from SOMEONE ELSE can't touch a shielded player
+    const shieldedTarget = (targetId, fromId) => {
+      if(!targetId || targetId === fromId) return false;
+      return isShielded(players.find(pl => pl.id === targetId));
+    };
+
+    // Standing infections bite next, before any new ones land, so a player
+    // infected this question takes one hit not two. Answering correctly is the
+    // cure; a live shield pauses the bite entirely.
     players.forEach(p => {
       if(!p.virus) return;
       const r = results.find(x => x.id === p.id);
       if(r && r.correct){
         s.puEvents.push({ type:'cured', target: p.id, targetName: p.name || '', targetAvatar: p.avatar || '' });
         delete p.virus;
+      } else if(isShielded(p)){
+        // shielded: the germs can't get through this question (no damage, no note)
       } else {
         p.score = (p.score || 0) - VIRUS_DAMAGE;
         if(r) r.virusDelta = (r.virusDelta || 0) - VIRUS_DAMAGE;
@@ -4117,18 +4334,16 @@
                           damage: VIRUS_DAMAGE, fromName: (p.virus && p.virus.byName) || '' });
       }
     });
-    if(s.puEpoch){
-      const plays = await fetchPowers(s.puEpoch);
-      // nukes resolve LAST: they zero out everything the other powerups may
-      // have granted, so ordering must not depend on Firebase's key order
-      const ordered = Object.values(plays).sort((a, b) =>
+    {
+      // nukes resolve LAST (they zero out grants); shields already ran ABOVE.
+      // Ordering must not depend on Firebase's key order.
+      const ordered = playList.filter(pw => pw.type !== 'shield').sort((a, b) =>
         ((a && a.type === 'nuke') ? 1 : 0) - ((b && b.type === 'nuke') ? 1 : 0));
       ordered.forEach(pw => {
-        if(!pw || !pw.id || !POWERUPS[pw.type]) return;
         const p = players.find(pl => pl.id === pw.id);
         if(!p) return;
         // the nuke is held on its own field, one per game; everything else
-        // comes out of the 3 slots. Either way it's spent win or lose.
+        // comes out of the slots. Either way it's spent win or lose.
         if(POWERUPS[pw.type].granted){
           if(!hasNuke(p)) return;          // already used their one shot
           p.nuke = false;
@@ -4165,7 +4380,8 @@
         } else if(pw.type === 'bomb'){
           const tr = results.find(x => x.id === pw.target);
           const tp = players.find(pl => pl.id === pw.target);
-          ev.fired = !!(r && r.correct && tp);
+          if(r && r.correct && shieldedTarget(pw.target, pw.id)){ ev.fired = false; ev.shielded = true; }
+          else ev.fired = !!(r && r.correct && tp);
           if(ev.fired){
             tp.score = (tp.score || 0) - BOMB_DAMAGE;
             ev.damage = BOMB_DAMAGE;
@@ -4178,9 +4394,10 @@
           ev.fired = !!(r && r.correct);
           if(ev.fired){
             ev.damage = CARPET_DAMAGE;
-            ev.hits = [];
+            ev.hits = []; ev.shieldedOut = [];
             players.forEach(pl => {
               if(pl.id === pw.id) return;              // the bomber flies above the blast
+              if(isShielded(pl)){ ev.shieldedOut.push({ name: pl.name, avatar: pl.avatar }); return; }
               pl.score = (pl.score || 0) - CARPET_DAMAGE;
               ev.hits.push({ id: pl.id, name: pl.name, avatar: pl.avatar });
               const xr = results.find(x => x.id === pl.id);
@@ -4189,7 +4406,8 @@
           }
         } else if(pw.type === 'virus'){
           const tp = players.find(pl => pl.id === pw.target);
-          ev.fired = !!(r && r.correct && tp);
+          if(r && r.correct && shieldedTarget(pw.target, pw.id)){ ev.fired = false; ev.shielded = true; }
+          else ev.fired = !!(r && r.correct && tp);
           if(ev.fired){
             // the infection sticks to the player record and bites again every
             // question (top of applyPowerups) until they answer one correctly
@@ -4199,6 +4417,42 @@
             const tr = results.find(x => x.id === pw.target);
             if(tr) tr.virusDelta = (tr.virusDelta || 0) - VIRUS_DAMAGE;
           }
+        } else if(pw.type === 'ninja'){
+          // swipes NINJA_STEAL off every unshielded rival and hands the lot over
+          ev.fired = !!(r && r.correct);
+          if(ev.fired){
+            ev.steal = NINJA_STEAL;
+            ev.hits = []; ev.shieldedOut = [];
+            let gained = 0;
+            players.forEach(pl => {
+              if(pl.id === pw.id) return;
+              if(isShielded(pl)){ ev.shieldedOut.push({ name: pl.name, avatar: pl.avatar }); return; }
+              pl.score = (pl.score || 0) - NINJA_STEAL;
+              gained += NINJA_STEAL;
+              ev.hits.push({ id: pl.id, name: pl.name, avatar: pl.avatar });
+              const xr = results.find(x => x.id === pl.id);
+              if(xr) xr.ninjaDelta = (xr.ninjaDelta || 0) - NINJA_STEAL;
+            });
+            p.score = (p.score || 0) + gained;
+            ev.gained = gained;
+            if(r) r.ninjaDelta = (r.ninjaDelta || 0) + gained;
+          }
+        } else if(pw.type === 'marine'){
+          const tp = players.find(pl => pl.id === pw.target);
+          if(r && r.correct && shieldedTarget(pw.target, pw.id)){ ev.fired = false; ev.shielded = true; }
+          else ev.fired = !!(r && r.correct && tp);
+          if(ev.fired){
+            // lift up to MARINE_STEAL from the target's bank into ours (their
+            // slot was freed by playing the marine, so there's room)
+            const theirs = puList(tp);
+            const room = Math.max(0, PU_MAX_SLOTS - puList(p).length);
+            const take = theirs.slice(0, Math.min(MARINE_STEAL, room));
+            tp.pu = theirs.slice(take.length);
+            p.pu = puList(p).concat(take);
+            ev.stole = take.map(t => POWERUPS[t].icon);
+            ev.stoleCount = take.length;
+            if(!take.length) ev.empty = true;   // arsenal was bare
+          }
         } else if(pw.type === 'nuke'){
           // −20 to everyone else, −10 to the nuker, and NOBODY keeps what they
           // won on this question — but only if the nuker answered correctly
@@ -4206,8 +4460,11 @@
           if(ev.fired){
             ev.damage = NUKE_DAMAGE;
             ev.selfCost = NUKE_SELF_COST;
-            // claw back every winning already paid out (incl. auto/double grants)
+            // claw back every winning already paid out (incl. auto/double
+            // grants); wonBeforeNuke is stashed so a shielded player can be
+            // refunded below (their winnings survive the blast)
             results.forEach(x => {
+              x.wonBeforeNuke = x.won || 0;
               if(x.won > 0){
                 const xp = players.find(pl => pl.id === x.id);
                 if(xp) xp.score = (xp.score || 0) - x.won;
@@ -4220,10 +4477,15 @@
             s.puEvents.forEach(be => {
               if(be.type === 'bomb' && be.fired){ be.targetWon = 0; be.targetNet = -be.damage; }
             });
-            ev.hits = [];
+            ev.hits = []; ev.shieldedOut = [];
             players.forEach(pl => {
               if(pl.id === pw.id){
-                pl.score = (pl.score || 0) - NUKE_SELF_COST;
+                pl.score = (pl.score || 0) - NUKE_SELF_COST;   // the nuker's own shield doesn't refund the button cost
+              } else if(isShielded(pl)){
+                // a shield keeps their winnings too, so give back the claw-back
+                const xr = results.find(x => x.id === pl.id);
+                if(xr && xr.wonBeforeNuke > 0){ pl.score = (pl.score || 0) + xr.wonBeforeNuke; xr.won = xr.wonBeforeNuke; }
+                ev.shieldedOut.push({ name: pl.name, avatar: pl.avatar });
               } else {
                 pl.score = (pl.score || 0) - NUKE_DAMAGE;
                 ev.hits.push({ id: pl.id, name: pl.name, avatar: pl.avatar });
@@ -4234,13 +4496,19 @@
             const nr = results.find(x => x.id === pw.id);
             if(nr) nr.nukeDelta = -NUKE_SELF_COST;
           }
+        } else if(pw.type === 'oil'){
+          // a live prank with no score effect; a standing shield deflects it
+          if(shieldedTarget(pw.target, pw.id)){ ev.fired = false; ev.shielded = true; }
+          else ev.fired = true;
         } else {
-          ev.fired = true;   // oil / fifty: flavour only
+          ev.fired = true;   // fifty: flavour only
           if(pw.type === 'fifty' && r) r.fifty = true;
         }
         s.puEvents.push(ev);
       });
     }
+    // a shield covers this question and ticks down; when it hits 0 it's gone
+    players.forEach(p => { if(p.shield > 0) p.shield -= 1; });
     refreshPuEarned(players);   // rungs climbed this question earn their picks now
   }
 
@@ -4479,6 +4747,7 @@
         p.puOwed = 0; p.puFloor = 0; p.puLadder = PU_EVERY;
         p.nuke = true;   // a fresh night reissues everyone's one-shot nuke
         delete p.virus;  // and cures any standing infections
+        delete p.shield; // and drops any standing shields
       });
     });
     try{ fetch(puPickUrl(), { method:'DELETE' }); }catch(e){}   // no stale claim wishes
@@ -5226,7 +5495,7 @@
                 </span>
               </div>
             ` : `
-              <div class="qb-player-admin-row ${p.virus ? 'infected' : ''}" ${p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
+              <div class="qb-player-admin-row ${isShielded(p) ? 'shielded' : p.virus ? 'infected' : ''}" ${isShielded(p) ? `title="Shielded for ${p.shield} more question(s)"` : p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
                 <span class="av">${p.avatar}</span>
                 <span class="who">${esc(p.name)}</span>
                 ${puHeldHTML(p)}
