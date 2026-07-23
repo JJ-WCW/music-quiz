@@ -1246,7 +1246,7 @@
     ninja:  { icon:'🥷', name:'Ninja', target:'all',
               blurb:'A cheeky ninja swipes 3 points from EVERY rival and hands them all to you. Only strikes if YOU answer this question correctly.' },
     shield: { icon:'🛡️', name:'Shield', target:'self', immediate:true,
-              blurb:'Wraps you in a force field for 3 questions — nothing anyone plays can touch you. Works the moment you equip it, no need to answer right.' },
+              blurb:'Wraps you in a force field for 3 questions — nothing anyone plays can touch you (except a tactical nuke, which tears through everything). Works the moment you equip it, no need to answer right.' },
     marine: { icon:'🪖', name:'Royal Marine', target:'player',
               blurb:'Send a marine into a rival’s arsenal to steal up to 2 of their powerups for yourself. Only succeeds if YOU answer this question correctly.' },
     // Not choosable and never re-earned: everyone is issued exactly one nuke for
@@ -1254,7 +1254,7 @@
     // everybody kept taking it and the night turned into a warzone; as a
     // one-per-game last resort it stays a real moment.
     nuke:   { icon:'☢️', name:'Tactical Nuke', target:'all', granted:true,
-              blurb:'−20 points to EVERY other player and −10 to yourself — and nobody wins anything on this question. Only detonates if YOU answer correctly. You get ONE for the whole quiz.' }
+              blurb:'The great leveller: −20 to EVERY other player, −10 to you, nobody wins this question — and it tears through every shield and wipes every infection off the board. Only detonates if YOU answer correctly. You get ONE for the whole quiz.' }
   };
   // the powerups a player can actually choose (the nuke is issued, not picked)
   const PU_CHOOSABLE = Object.entries(POWERUPS).filter(([, d]) => !d.granted);
@@ -2112,6 +2112,8 @@
         }
         if(e.type === 'nuke' && e.fired && e.from !== myPlayerId){
           statusSub += ` · ☢️ ${esc(e.fromName)} nuked the room: −${e.damage} points to you`;
+          if((e.shieldsDestroyed || []).some(h => h.name === myPlayerName)) statusSub += ' — 🛡️💥 the blast tore through your shield!';
+          if((e.virusesWiped || []).some(h => h.name === myPlayerName)) statusSub += ' — 🦠✨ but it cleansed your infection';
         }
         if(e.type === 'carpet' && e.from === myPlayerId){
           statusSub += e.fired ? ` · 🧨 YOUR CARPET BOMB LANDED! −${e.damage} off all ${(e.hits || []).length} rival${(e.hits || []).length === 1 ? '' : 's'}`
@@ -2768,6 +2770,8 @@
                <div class="qb-bomb-line" style="font-size:30px;">☢️💥 ${esc(e.fromName)} DROPPED A TACTICAL NUKE!</div>
                <div class="qb-bomb-line" style="font-size:20px;">${(e.hits || []).map(h => `${h.avatar || ''} ${esc(h.name)} &minus;${e.damage}`).join(' &middot; ')}</div>
                <div class="qb-bomb-line" style="font-size:20px;color:#ffb347;">${esc(e.fromName)} pays &minus;${e.selfCost} for pressing the button</div>
+               ${(e.shieldsDestroyed || []).length ? `<div class="qb-bomb-line" style="font-size:19px;color:#8fd0ff;">🛡️💥 Tore straight through ${e.shieldsDestroyed.map(h => `${h.avatar || ''} ${esc(h.name)}`).join(', ')}'s shield${e.shieldsDestroyed.length === 1 ? '' : 's'}!</div>` : ''}
+               ${(e.virusesWiped || []).length ? `<div class="qb-bomb-line" style="font-size:19px;color:#9fe0ac;">🦠✨ Vaporised every infection &mdash; ${e.virusesWiped.map(h => `${h.avatar || ''} ${esc(h.name)}`).join(', ')} cleansed</div>` : ''}
                <span class="maths">…and NOBODY wins any points on this question. Scorched earth.</span>
              </div>`
           : `<div class="qb-bomb-line dud">☢️💨 ${esc(e.fromName)}'s nuke failed to launch &mdash; wrong answer, warhead wasted!</div>`;
@@ -3044,7 +3048,7 @@
         const queue = [];
         const firedNuke = evs.find(e => e.type === 'nuke' && e.fired);
         if(firedNuke) queue.push({ kind:'nuke', sound:'siren', after:() => setTimeout(() => playSound('boom'), 900),
-          html:`☢️💥 ${esc(firedNuke.fromName)} NUKED THE ROOM!${sub(`&minus;${firedNuke.damage} to everyone else &middot; &minus;${firedNuke.selfCost} to ${esc(firedNuke.fromName)} &middot; nobody scores!`)}` });
+          html:`☢️💥 ${esc(firedNuke.fromName)} NUKED THE ROOM!${sub(`&minus;${firedNuke.damage} to everyone else &middot; &minus;${firedNuke.selfCost} to ${esc(firedNuke.fromName)} &middot; nobody scores${(firedNuke.shieldsDestroyed || []).length ? ' &middot; shields shattered!' : ''}${(firedNuke.virusesWiped || []).length ? ' &middot; viruses wiped!' : ''}`)}` });
         const firedCarpet = evs.filter(e => e.type === 'carpet' && e.fired);
         firedCarpet.forEach(c => queue.push({ kind:'carpet', sound:'carpet',
           html:`🧨💥 ${esc(c.fromName)} CARPET BOMBED THE ROOM!${sub(`&minus;${c.damage} to every rival &mdash; ${(c.hits || []).map(h => esc(h.name)).join(', ') || 'nobody in range'}`)}` }));
@@ -4454,17 +4458,18 @@
             if(!take.length) ev.empty = true;   // arsenal was bare
           }
         } else if(pw.type === 'nuke'){
-          // −20 to everyone else, −10 to the nuker, and NOBODY keeps what they
-          // won on this question — but only if the nuker answered correctly
+          // The great leveller: −20 to everyone else, −10 to the nuker, NOBODY
+          // keeps what they won — and it tears through EVERYTHING. Shields are
+          // destroyed (no immunity, no refund) and every infection is wiped from
+          // the board. That's the point: the runaway leader can't turtle behind
+          // a shield, and the nuke resets the game's status effects to zero.
+          // Only if the nuker answered correctly.
           ev.fired = !!(r && r.correct);
           if(ev.fired){
             ev.damage = NUKE_DAMAGE;
             ev.selfCost = NUKE_SELF_COST;
-            // claw back every winning already paid out (incl. auto/double
-            // grants); wonBeforeNuke is stashed so a shielded player can be
-            // refunded below (their winnings survive the blast)
+            // claw back every winning already paid out (incl. auto/double grants)
             results.forEach(x => {
-              x.wonBeforeNuke = x.won || 0;
               if(x.won > 0){
                 const xp = players.find(pl => pl.id === x.id);
                 if(xp) xp.score = (xp.score || 0) - x.won;
@@ -4477,17 +4482,19 @@
             s.puEvents.forEach(be => {
               if(be.type === 'bomb' && be.fired){ be.targetWon = 0; be.targetNet = -be.damage; }
             });
-            ev.hits = []; ev.shieldedOut = [];
+            // scorched earth: tear down every shield and cure every infection,
+            // recording who for the reveal's drama
+            ev.shieldsDestroyed = []; ev.virusesWiped = [];
+            players.forEach(pl => {
+              if(pl.shield > 0){ ev.shieldsDestroyed.push({ name: pl.name, avatar: pl.avatar }); delete pl.shield; }
+              if(pl.virus){ ev.virusesWiped.push({ name: pl.name, avatar: pl.avatar }); delete pl.virus; }
+            });
+            ev.hits = [];
             players.forEach(pl => {
               if(pl.id === pw.id){
-                pl.score = (pl.score || 0) - NUKE_SELF_COST;   // the nuker's own shield doesn't refund the button cost
-              } else if(isShielded(pl)){
-                // a shield keeps their winnings too, so give back the claw-back
-                const xr = results.find(x => x.id === pl.id);
-                if(xr && xr.wonBeforeNuke > 0){ pl.score = (pl.score || 0) + xr.wonBeforeNuke; xr.won = xr.wonBeforeNuke; }
-                ev.shieldedOut.push({ name: pl.name, avatar: pl.avatar });
+                pl.score = (pl.score || 0) - NUKE_SELF_COST;
               } else {
-                pl.score = (pl.score || 0) - NUKE_DAMAGE;
+                pl.score = (pl.score || 0) - NUKE_DAMAGE;   // no shield survives this
                 ev.hits.push({ id: pl.id, name: pl.name, avatar: pl.avatar });
                 const xr = results.find(x => x.id === pl.id);
                 if(xr) xr.nukeDelta = -NUKE_DAMAGE;
