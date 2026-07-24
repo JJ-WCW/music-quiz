@@ -926,6 +926,9 @@
       roundNumber:0, roundTotal:0,
       buzzEpoch:'', buzzersOpenedAt:0,
       showStandings:false, showPodium:false, showLobby:false,
+      // host can hide every score from the room (phone/projector/podium) to spare
+      // a trailing player's morale; the admin panel always shows real scores
+      hideScores:false,
       // rounds are groups of questions: roundLabel/roundNumber/roundTotal describe
       // "General Knowledge · Question 2 of 5"; group fields say "Round 1 of 3"
       groupNumber:0, groupTotal:0, showRoundIntro:null, endOfRound:null,
@@ -1639,6 +1642,19 @@
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
   function sortedPlayers(players){ return [...players].sort((a,b)=>b.score-a.score); }
+  // The host can hide all scores from the room (phone + projector + podium) to
+  // spare a trailing player's morale — set live from `state.hideScores` at the
+  // top of every player/display render, forced OFF for admin (host always sees).
+  // While hidden the boards also drop to a NEUTRAL (alphabetical) order and lose
+  // their ranks/medals, so position can't be inferred from the numberless list;
+  // toggling back on makes the ranked reveal a moment in itself.
+  let scoresHidden = false;
+  function boardOrder(players){
+    return scoresHidden
+      ? [...players].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      : sortedPlayers(players);
+  }
+  function ptsText(score){ return scoresHidden ? '&bull;&bull;&bull;' : score; }
   // two or more players level at the top of the board; empty array otherwise
   function tiedLeaders(players){
     const sorted = sortedPlayers(players);
@@ -1657,15 +1673,15 @@
     return `<span class="qb-pu-held">${icons.join('')}</span>`;
   }
   function scoreboardHTML(players, big){
-    const sorted = sortedPlayers(players);
+    const sorted = boardOrder(players);
     if(sorted.length === 0) return `<p class="qb-small">No players have joined yet.</p>`;
     return `<div class="${big ? 'qb-display-scoreboard' : ''}">` + sorted.map((p,i)=>`
       <div class="qb-score-row ${isShielded(p) ? 'shielded' : p.virus ? 'infected' : ''}" ${isShielded(p) ? `title="Shielded for ${p.shield} more"` : p.virus ? `title="Infected by ${esc(p.virus.byName || 'someone')}"` : ''}>
-        <span class="qb-rank">${i+1}.</span>
+        <span class="qb-rank">${scoresHidden ? '&bull;' : (i+1)+'.'}</span>
         <span class="av">${p.avatar}</span>
         <span class="name">${esc(p.name)}</span>
         ${puHeldHTML(p)}
-        <span class="pts">${p.score}</span>
+        <span class="pts">${ptsText(p.score)}</span>
       </div>
     `).join('') + `</div>`;
   }
@@ -1944,6 +1960,7 @@
     const seq = ++playerSeq;
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
     if(seq !== playerSeq) return;
+    scoresHidden = !!state.hideScores;   // the host may be hiding scores from the room
     const me = players.find(p => p.id === myPlayerId);
     if(!me && players.length){
       // the host removed this player, send them back to sign-up
@@ -1963,6 +1980,7 @@
       }
     }
     const myScore = me ? me.score : 0;
+    const myScoreText = scoresHidden ? '••• pts' : `${myScore} pts`;   // host may be hiding scores
     const myAvatar = me ? me.avatar : '';
 
     let buzzerDisabled = true;
@@ -2402,11 +2420,12 @@
       myPu, myPlay ? [myPlay.type, myPlay.target] : null, puArming ? puArming.type : null,
       puLive, me ? puPending(me) : 0, hasNuke(me), !!(me && me.virus), (me && me.shield) || 0,
       myAvatar, myPlayerName, statusLine, statusSub, stagePill, buzzerDisabled, players.length,
-      players.map(p => (p.shield > 0 ? 's' : '') + (p.virus ? 'v' : '')).join('')
+      players.map(p => (p.shield > 0 ? 's' : '') + (p.virus ? 'v' : '')).join(''),
+      scoresHidden   // toggling the room's score visibility restructures the boards
     ]);
     if(prevPlayerShape === shape && root.querySelector('.qb-card')){
       const set = (id, text) => { const el = document.getElementById(id); if(el) el.textContent = text; };
-      set('qb-p-score', `${myScore} pts`);
+      set('qb-p-score', myScoreText);
       set('qb-p-kitty', pot);
       set('qb-p-pot', bettingPot);
       set('qb-p-decided', `${decidedCount} of ${players.length}`);
@@ -2424,7 +2443,7 @@
           <span style="font-weight:700;">${myAvatar} ${esc(myPlayerName || '')}</span>
           <span style="display:flex;align-items:center;gap:12px;">
             <button class="qb-back-link" style="margin:0;" data-action="toggle-sound" title="Buzzer sound on this phone">${soundOn ? '🔊' : '🔇'}</button>
-            <span class="pts" id="qb-p-score" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScore} pts</span>
+            <span class="pts" id="qb-p-score" style="font-family:'Archivo Black',sans-serif;color:var(--gold);">${myScoreText}</span>
           </span>
         </div>
         ${centreHTML}
@@ -2801,19 +2820,20 @@
     return '';
   }
   function standingsHTML(players){
-    const sorted = sortedPlayers(players);
+    const sorted = boardOrder(players);
     if(!sorted.length) return `<div class="qb-idle-box">No players have joined yet</div>`;
     const medals = ['🥇','🥈','🥉'];
-    const tied = tiedLeaders(players);
+    // while scores are hidden there's no rank to show, so no medals or tie panel
+    const tied = scoresHidden ? [] : tiedLeaders(players);
     const tiedIds = tied.map(p => p.id);
     return `<div class="qb-standings">` + sorted.map((p, i) => `
-      <div class="qb-standing-row ${i === 0 || tiedIds.includes(p.id) ? 'leader' : ''} ${isShielded(p) ? 'shielded' : p.virus ? 'infected' : ''}">
-        <span class="rank">${tiedIds.includes(p.id) ? '🤝' : medals[i] || (i + 1) + '.'}</span>
+      <div class="qb-standing-row ${!scoresHidden && (i === 0 || tiedIds.includes(p.id)) ? 'leader' : ''} ${isShielded(p) ? 'shielded' : p.virus ? 'infected' : ''}">
+        <span class="rank">${scoresHidden ? '&bull;' : tiedIds.includes(p.id) ? '🤝' : medals[i] || (i + 1) + '.'}</span>
         <span class="av">${p.avatar}</span>
         <span class="who">${esc(p.name)}</span>
-        <span class="tags">${tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED 1st</span>' : ''}</span>
+        <span class="tags">${!scoresHidden && tiedIds.includes(p.id) ? '<span class="qb-wager-tag">TIED 1st</span>' : ''}</span>
         ${puHeldHTML(p)}
-        <span class="pts">${p.score}</span>
+        <span class="pts">${ptsText(p.score)}</span>
       </div>
     `).join('') + `</div>`
     + (tied.length ? tipHTML(`It's level at the top &mdash; a <strong>⚡ sudden death</strong> round settles it. Only the tied players' buzzers will work.`) : '');
@@ -2951,6 +2971,7 @@
     const seq = ++displaySeq;
     const [state, players] = await Promise.all([getGameState(), getPlayers()]);
     if(seq !== displaySeq) return;   // a newer render superseded this one
+    scoresHidden = !!state.hideScores;   // the host may be hiding scores from the room
 
     // podium mode renders once and then leaves the DOM alone, so its staged
     // reveal animations and music aren't restarted by the poll
@@ -3121,7 +3142,10 @@
     const questionTimeUp = displayQTimer && displayQTimer.fired;
     const showIntro = !!state.showRoundIntro;
     const paintingQuestion = answering && !state.reviewing && !questionTimeUp && !isLobby && !showStandings && !showIntro;
-    if(paintingQuestion && root.getAttribute('data-qepoch') === state.answerEpoch){
+    // the marker carries the hide-scores flag too, so toggling it mid-question
+    // busts the fast path and repaints the bottom scoreboard right away
+    const qepochMark = state.answerEpoch + (scoresHidden ? ':h' : '');
+    if(paintingQuestion && root.getAttribute('data-qepoch') === qepochMark){
       const row = document.getElementById('qb-answered-row');
       // If the row has gone (a banner overlay repaint, a stale marker), fall
       // through to a full render instead of returning — silently patching
@@ -3132,7 +3156,7 @@
       }
     }
     // remember which question (if any) this render is painting, for the patch above
-    root.setAttribute('data-qepoch', paintingQuestion ? state.answerEpoch : '');
+    root.setAttribute('data-qepoch', paintingQuestion ? qepochMark : '');
 
     // same idea for the 3-2-1: paint it once, then let displayTick swap the
     // number. Rebuilding it every poll would restart the pop animation.
@@ -3392,7 +3416,7 @@
       <div class="slot" id="qb-slot-${cls}">
         <div class="avatar">${p.avatar}</div>
         <div class="name">${esc(p.name)}</div>
-        <div class="score">${p.score} pts</div>
+        <div class="score">${scoresHidden ? '&bull;&bull;&bull; pts' : p.score + ' pts'}</div>
         <div class="block ${cls}" style="height:${h}px;">${place}</div>
       </div>` : '';
     root.innerHTML = `
@@ -3411,7 +3435,7 @@
         <div id="qb-podium-extra" style="opacity:0;transition:opacity .8s;">
           ${fastest ? `<div class="qb-fastest">⚡ Fastest finger of the night: ${fastest.avatar} ${esc(fastest.name)} &mdash; ${(fastest.bestReaction / 1000).toFixed(2)}s</div>` : ''}
           ${rest.length ? `<div class="qb-standings" style="max-width:520px;">${rest.map((p, i) => `
-            <div class="qb-standing-row"><span class="rank">${i + 4}.</span><span class="who">${p.avatar} ${esc(p.name)}</span><span class="pts">${p.score}</span></div>`).join('')}</div>` : ''}
+            <div class="qb-standing-row"><span class="rank">${i + 4}.</span><span class="who">${p.avatar} ${esc(p.name)}</span><span class="pts">${ptsText(p.score)}</span></div>`).join('')}</div>` : ''}
         </div>
       </div>
     `;
@@ -3518,6 +3542,15 @@
     const s = await getGameState();
     s.showLobby = !s.showLobby;
     if(s.showLobby){ s.showStandings = false; s.showPodium = false; s.showRoundIntro = null; }
+    await saveGameState(s);
+    renderAdmin();
+  }
+
+  // hide/show every score from the room (phones, projector, podium). The host's
+  // own admin panel is never affected — renderAdmin forces scoresHidden off.
+  async function toggleHideScores(){
+    const s = await getGameState();
+    s.hideScores = !s.hideScores;
     await saveGameState(s);
     renderAdmin();
   }
@@ -5088,6 +5121,8 @@
         <button class="qb-btn qb-btn-small ${state.showLobby ? 'qb-btn-gold' : ''}" data-action="toggle-lobby">${state.showLobby ? 'Back to the game screen' : '👋 Show lobby (join QR)'}</button>
         <button class="qb-btn qb-btn-small ${state.showStandings ? 'qb-btn-gold' : ''}" data-action="toggle-standings">${state.showStandings ? 'Back to the game screen' : '📊 Show score standings'}</button>
         <button class="qb-btn qb-btn-small ${state.showPodium ? 'qb-btn-gold' : (state.roundTotal && state.roundNumber === state.roundTotal && (!state.groupTotal || state.groupNumber === state.groupTotal) && state.status === 'reveal' ? 'qb-btn-gold qb-glow' : '')}" data-action="toggle-podium">${state.showPodium ? 'Hide the podium' : '🏆 Show podium reveal'}</button>
+        <button class="qb-btn qb-btn-small ${state.hideScores ? 'qb-btn-gold' : ''}" data-action="toggle-hide-scores" title="Hides every score from the room — phones, projector and podium. You always see them here.">${state.hideScores ? '🙈 Scores hidden &mdash; reveal them' : '🙈 Hide scores from the room'}</button>
+        ${state.hideScores ? '<p class="qb-small" style="margin:8px 0 0;color:var(--gold);">Scores are hidden from the room right now (you still see them). The boards show names only, in no order.</p>' : ''}
       </div>
     `;
   }
@@ -5133,6 +5168,7 @@
   }
 
   async function renderAdmin(){
+    scoresHidden = false;   // the host ALWAYS sees real scores, whatever the room toggle is
     if(!bucket){
       root.innerHTML = `${backLink('home','&larr; Back')}${sessionSetupHTML()}`;
       bindActions();
@@ -5721,6 +5757,8 @@
           toggleStandings();
         } else if(action === 'toggle-podium'){
           togglePodium();
+        } else if(action === 'toggle-hide-scores'){
+          toggleHideScores();
         } else if(action === 'undo'){
           undoLast();
         } else if(action === 'toggle-sound'){
