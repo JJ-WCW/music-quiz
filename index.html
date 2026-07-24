@@ -1244,7 +1244,7 @@
     virus:  { icon:'🦠', name:'Virus', target:'player',
               blurb:'Infect a rival: −3 now and −3 every question after, until they answer one correctly and cure themselves. Only infects if YOU answer this question correctly.' },
     ninja:  { icon:'🥷', name:'Ninja', target:'all',
-              blurb:'A cheeky ninja swipes 3 points from EVERY rival and hands them all to you. Only strikes if YOU answer this question correctly.' },
+              blurb:'A cheeky ninja swipes 2 points from EVERY rival and hands them all to you. Only strikes if YOU answer this question correctly.' },
     shield: { icon:'🛡️', name:'Shield', target:'self', immediate:true,
               blurb:'Wraps you in a force field for 3 questions — nothing anyone plays can touch you (except a tactical nuke, which tears through everything). Works the moment you equip it, no need to answer right.' },
     marine: { icon:'🪖', name:'Royal Marine', target:'player',
@@ -1266,7 +1266,7 @@
   const NUKE_SELF_COST = 10;  // what the nuker pays for pressing the button
   const CARPET_DAMAGE = 5;    // every rival, all at once (the bomber flies above it)
   const VIRUS_DAMAGE = 3;     // on infection, then again every question until cured
-  const NINJA_STEAL = 3;      // swiped from each rival and handed to the ninja
+  const NINJA_STEAL = 2;      // swiped from each rival and handed to the ninja
   const SHIELD_QUESTIONS = 3; // questions of full immunity from an equipped shield
   const MARINE_STEAL = 2;     // powerups a marine lifts from a rival's bank
   // a shield gives full immunity to everyone else's powerups while it lasts
@@ -1769,7 +1769,7 @@
         <div class="qb-buzzer-grid">
           ${BUZZ_SOUNDS.map((b, i) => `<button class="qb-buzzer-pick ${i===joinDraftSound?'selected':''}" data-action="pick-buzzer" data-sound="${i}">${esc(b.label)}</button>`).join('')}
         </div>
-        <label class="qb-label">Pick your ${PU_MAX_SLOTS} powerups &mdash; you can take doubles</label>
+        <label class="qb-label">Pick your ${PU_MAX_SLOTS} powerups &mdash; one of each, so no stockpiling</label>
         <div class="qb-pu-slots">
           ${Array.from({length: PU_MAX_SLOTS}, (_, i) => joinDraftPu[i]
             ? `<button class="qb-pu-slot filled" data-action="join-remove-pu" data-idx="${i}" title="Tap to put it back">${POWERUPS[joinDraftPu[i]].icon}</button>`
@@ -1778,9 +1778,9 @@
         </div>
         <div class="qb-pu-menu">
           ${PU_CHOOSABLE.map(([t, d]) => `
-            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS ? 'disabled' : ''}>
+            <button class="qb-pu-row" data-action="join-add-pu" data-type="${t}" ${joinDraftPu.length >= PU_MAX_SLOTS || joinDraftPu.includes(t) ? 'disabled' : ''}>
               <span class="ic">${d.icon}</span>
-              <span class="tx"><strong>${d.name}</strong><br><span class="qb-small">${d.blurb}</span></span>
+              <span class="tx"><strong>${d.name}</strong>${joinDraftPu.includes(t) ? ' <span class="qb-small">&mdash; already picked</span>' : ''}<br><span class="qb-small">${d.blurb}</span></span>
               <span class="add">+</span>
             </button>
           `).join('')}
@@ -1809,7 +1809,7 @@
     const name = (nameEl ? nameEl.value : joinDraftName).trim().slice(0, NAME_MAX);
     if(!name){ alert('Enter a name first.'); return; }
     if(!joinDraftAvatar){ alert('Pick a picture first.'); return; }
-    if(joinDraftPu.length < PU_MAX_SLOTS){ alert(`Pick your ${PU_MAX_SLOTS} powerups first — doubles are allowed.`); return; }
+    if(joinDraftPu.length < PU_MAX_SLOTS){ alert(`Pick your ${PU_MAX_SLOTS} powerups first — one of each.`); return; }
     // default to a random buzzer if they never tapped one, so nobody is silent
     const sound = Number.isInteger(joinDraftSound) ? joinDraftSound : Math.floor(Math.random() * BUZZ_SOUNDS.length);
     const id = makeId('p');
@@ -2371,12 +2371,16 @@
           ${isShielded(me) ? `<div class="qb-shielded-badge">🛡️ SHIELDED &mdash; nothing can touch you for ${me.shield} more question${me.shield === 1 ? '' : 's'}!</div>` : ''}
           ${me.virus ? `<div class="qb-infected-badge">🦠 INFECTED by ${esc(me.virus.byName || 'someone')} &mdash; &minus;${VIRUS_DAMAGE} every question until you answer one correctly!</div>` : ''}
         `;
-        // a claim is banked until a slot frees up; then the picker appears
-        if(puPending(me) > 0 && myPu.length < PU_MAX_SLOTS){
+        // a claim is banked until a slot frees up; then the picker appears.
+        // You can only claim a type you don't already hold, so the offer is
+        // filtered to what's missing from your bank — keeps variety up and
+        // stops anyone stacking one powerup.
+        const claimable = PU_CHOOSABLE.filter(([t]) => !myPu.includes(t));
+        if(puPending(me) > 0 && myPu.length < PU_MAX_SLOTS && claimable.length){
           trayHTML += `
             <div class="qb-pu-target" style="border:1px solid var(--gold);border-radius:14px;padding:12px;">
-              <div class="qb-pu-note" style="color:var(--gold);">🎁 <strong>You've earned a new powerup!</strong> Pick one:</div>
-              ${PU_CHOOSABLE.map(([t, d]) => `<button data-action="claim-pu" data-type="${t}">${d.icon} ${d.name}</button>`).join('')}
+              <div class="qb-pu-note" style="color:var(--gold);">🎁 <strong>You've earned a new powerup!</strong> Pick one you don't already have:</div>
+              ${claimable.map(([t, d]) => `<button data-action="claim-pu" data-type="${t}">${d.icon} ${d.name}</button>`).join('')}
             </div>
           `;
         }
@@ -2535,6 +2539,7 @@
     const me = players.find(p => p.id === myPlayerId);
     if(POWERUPS[type] && POWERUPS[type].granted) return;   // the nuke is issued, never claimed
     if(!me || puPending(me) <= 0 || puList(me).length >= PU_MAX_SLOTS) return;
+    if(puList(me).includes(type)) return;                  // can only claim a type you don't already hold
     playSound('join');
     try{
       await fetch(puPickUrl(myPlayerId), { method:'PUT', body: JSON.stringify({ id: myPlayerId, type, ts: { '.sv':'timestamp' } }) });
@@ -4185,7 +4190,8 @@
       for(const [pid, pick] of Object.entries(picks)){
         const p = players.find(x => x.id === pid);
         if(p && pick && POWERUPS[pick.type] && !POWERUPS[pick.type].granted
-            && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS){
+            && puPending(p) > 0 && puList(p).length < PU_MAX_SLOTS
+            && !puList(p).includes(pick.type)){   // no duplicate buys — one of each in the bank
           p.pu = puList(p).concat(pick.type);
           p.puOwed = Math.max(0, (p.puOwed || 0) - 1);
           changed = true;
@@ -5602,7 +5608,8 @@
           playBuzzFor({ sound: joinDraftSound });   // preview the chosen buzzer (tap also unlocks audio)
         } else if(action === 'join-add-pu'){
           const t = el.getAttribute('data-type');
-          if(joinDraftPu.length < PU_MAX_SLOTS && POWERUPS[t] && !POWERUPS[t].granted){
+          // one of each: no stockpiling a single overpowered pick
+          if(joinDraftPu.length < PU_MAX_SLOTS && POWERUPS[t] && !POWERUPS[t].granted && !joinDraftPu.includes(t)){
             joinDraftPu.push(t);
             playSound('join');
             renderJoin(true);   // cached players, so the repaint doesn't steal focus
