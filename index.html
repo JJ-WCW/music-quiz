@@ -118,6 +118,22 @@
   }
   .qb-status-line{font-size:18px;font-weight:600;text-align:center;min-height:26px;}
   .qb-status-sub{color:var(--text-dim);font-size:14px;text-align:center;}
+  /* the calm resting screen (before the quiz, between questions) — no buzzer,
+     lots of breathing room, and a card with the round context */
+  .qb-resting{display:flex;flex-direction:column;align-items:center;gap:18px;padding:34px 6px 26px;text-align:center;}
+  .qb-resting-emoji{font-size:56px;line-height:1;}
+  .qb-resting-line{font-family:'Archivo Black',sans-serif;font-size:24px;line-height:1.25;}
+  .qb-resting-sub{color:var(--text-dim);font-size:15px;line-height:1.5;max-width:320px;}
+  .qb-round-card{
+    width:100%;max-width:340px;border-radius:18px;padding:20px 18px;
+    background:linear-gradient(160deg, var(--panel-light), var(--panel));
+    border:1px solid rgba(255,255,255,0.08);
+  }
+  .qb-round-card .rc-round{font-size:13px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);font-weight:700;}
+  .qb-round-card .rc-name{font-family:'Archivo Black',sans-serif;font-size:26px;color:var(--gold);margin:6px 0 12px;line-height:1.15;}
+  .qb-round-card .rc-q{font-size:16px;font-weight:700;}
+  .qb-round-card .rc-meta{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:12px;}
+  .qb-round-card .rc-chip{background:rgba(255,255,255,0.06);border-radius:999px;padding:6px 14px;font-size:13px;font-weight:700;}
   .qb-stage-pill{
     display:inline-block;background:var(--panel-light);color:var(--gold);
     padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;
@@ -2332,7 +2348,9 @@
           </div>
         </div>
       `;
-    } else {
+    } else if(state.status === 'live' && !state.qMode){
+      // a BUZZER round (song layers or sudden death) — the one place the buzzer
+      // still belongs, now that most rounds are tap-to-answer questions
       centreHTML = `
         <div class="qb-buzzer-wrap">
           ${stagePill}
@@ -2340,6 +2358,32 @@
           ${buzzCountdownHTML}
           <div class="qb-status-line">${statusLine}</div>
           <div class="qb-status-sub">${statusSub}</div>
+        </div>
+      `;
+    } else {
+      // RESTING: before the quiz and between questions. No buzzer, room to
+      // breathe, and the round context so players know where they are.
+      const hasRound = state.roundTotal > 0;
+      const reveal = state.status === 'reveal';
+      const emoji = reveal ? '💡' : hasRound ? '⏳' : '🎬';
+      const headline = reveal ? statusLine
+        : hasRound ? 'Next question coming up&hellip;'
+        : 'Waiting for the quiz to start';
+      const sub = reveal ? statusSub
+        : hasRound ? 'Keep your eyes on the big screen.'
+        : `${players.length} player${players.length === 1 ? '' : 's'} in &mdash; get comfy!`;
+      const roundCard = hasRound ? `
+        <div class="qb-round-card">
+          ${state.groupTotal ? `<div class="rc-round">Round ${state.groupNumber} of ${state.groupTotal}</div>` : ''}
+          <div class="rc-name">${esc(state.roundLabel || 'This round')}</div>
+          <div class="rc-q">Question ${state.roundNumber} of ${state.roundTotal}</div>
+        </div>` : '';
+      centreHTML = `
+        <div class="qb-resting">
+          <div class="qb-resting-emoji">${emoji}</div>
+          <div class="qb-resting-line">${headline}</div>
+          ${sub ? `<div class="qb-resting-sub">${sub}</div>` : ''}
+          ${roundCard}
         </div>
       `;
     }
@@ -2413,6 +2457,8 @@
       state.answerEpoch, state.anteEpoch, state.buzzEpoch, state.wagerActive, state.wagerPhase,
       state.question, state.qImage, state.qAnswers, state.wagerClue, state.wagerImage, state.carryKitty,
       state.sliderMin, state.sliderMax, state.sliderStep, state.sliderUnit,
+      // the resting screen's round card is built from these
+      state.roundLabel, state.roundNumber, state.roundTotal, state.groupNumber, state.groupTotal,
       myBet ? [myBet.amount, !!myBet.pass] : null,
       myAnswer ? [myAnswer.choice, myAnswer.text, myAnswer.value] : null,
       // powerups: the tray, an armed target list, a played state or a pending
